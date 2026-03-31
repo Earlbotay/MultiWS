@@ -15,16 +15,23 @@ class StatusService {
       throw new Error('Peranti tidak disambungkan');
     }
 
-    const content = {
-      text,
-    };
+    let content;
 
-    if (backgroundColor) {
-      content.backgroundColor = backgroundColor;
-    }
-
-    if (font) {
-      content.font = font;
+    if (backgroundColor || font) {
+      // Guna format extendedTextMessage untuk sokongan warna latar dan fon
+      content = {
+        extendedTextMessage: {
+          text: text,
+          backgroundArgb: backgroundColor
+            ? parseInt('FF' + backgroundColor.replace('#', ''), 16)
+            : 0xFF128C7E, // Warna hijau WhatsApp lalai
+          font: font !== undefined ? parseInt(font) : 0,
+          inviteLinkGroupTypeV2: 0,
+          previewType: 0
+        }
+      };
+    } else {
+      content = { text };
     }
 
     const result = await socket.sendMessage('status@broadcast', content);

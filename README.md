@@ -11,6 +11,7 @@ Platform automasi WhatsApp yang lengkap.
 - 🔍 **Semak Nombor** - Semak nombor WhatsApp secara pukal
 - 🤖 **Auto Balas** - Balas mesej secara automatik berdasarkan kata kunci
 - 📸 **Status WhatsApp** - Hantar status teks, gambar, dan video
+- 🔐 **Panel Pentadbir Tersembunyi** - Akses admin melalui mekanisme khas
 
 ## Keperluan
 
@@ -34,7 +35,7 @@ Cipta repositori **peribadi** baru di GitHub untuk menyimpan data.
 
 ```bash
 npm run setup
-cd data
+cd MULTIWSDATA
 git init
 git remote add origin https://github.com/anda/multichat-data.git
 git add -A
@@ -52,6 +53,11 @@ Pergi ke Settings > Secrets and variables > Actions:
 | `CF_TUNNEL_TOKEN` | Token Cloudflare Tunnel anda |
 | `DATA_REPO` | Nama repo data (contoh: `anda/multichat-data`) |
 | `DATA_REPO_TOKEN` | GitHub Personal Access Token dengan akses repo |
+| `ADMIN_USER` | Nama pengguna pentadbir (contoh: `admin`) |
+| `ADMIN_PASS` | Kata laluan pentadbir (gunakan kata laluan yang kuat) |
+| `SESSION_SECRET` | *(Pilihan)* Secret untuk sesi — jika tidak ditetapkan, SHA commit digunakan |
+
+> ⚠️ **PENTING:** Jangan sekali-kali simpan kata laluan admin dalam kod. Sentiasa gunakan GitHub Secrets.
 
 ### 4. Sediakan Cloudflare Tunnel
 
@@ -70,21 +76,38 @@ Atau tunggu ia berjalan secara automatik mengikut jadual.
 
 ```bash
 npm install
-export DATA_DIR=./data
-export PORT=8080
+cp .env.example .env
+# Edit .env dan tetapkan nilai yang sesuai
 npm start
 ```
 
 Buka `http://localhost:8080` di pelayar.
 
-## Pengguna Default
+## Struktur Data
 
-Pada permulaan pertama, pengguna admin akan dicipta secara automatik:
+Semua data aplikasi (sesi WhatsApp, pangkalan data, muat naik) disimpan dalam folder `MULTIWSDATA/`:
 
-- **Nama Pengguna:** admin
-- **Kata Laluan:** admin123
+```
+MULTIWSDATA/
+├── db/              # Pangkalan data SQLite
+│   └── multichat.db
+├── sessions/        # Sesi WhatsApp per peranti
+│   ├── device_1/
+│   ├── device_2/
+│   └── ...
+├── auth/            # Fail pengesahan
+└── uploads/         # Fail muat naik
+```
 
-⚠️ Sila tukar kata laluan selepas log masuk pertama.
+Folder ini disinkronkan ke repositori data peribadi setiap kali ada perubahan.
+
+## Akses Pentadbir
+
+Panel pentadbir tersembunyi di halaman log masuk. Untuk mengaksesnya:
+
+**Klik logo WhatsApp di halaman log masuk sebanyak 5 kali** — borang log masuk pentadbir akan muncul.
+
+Kelayakan pentadbir diambil dari GitHub Secrets (`ADMIN_USER` dan `ADMIN_PASS`). Pentadbir mempunyai role `admin` yang membezakan daripada pengguna biasa.
 
 ## Struktur Projek
 
@@ -108,9 +131,10 @@ multichat/
 
 ## Nota
 
-- Data (sesi WhatsApp, pangkalan data, fail) disinkronkan ke repositori peribadi setiap 10 minit
+- Data (sesi WhatsApp, pangkalan data, fail) disinkronkan ke repositori peribadi setiap kali ada perubahan
 - Perkhidmatan berjalan selama ~5 jam dan dimulakan semula secara automatik
 - Selepas stabil, disyorkan untuk pindahkan ke VPS untuk perkhidmatan berterusan
+- Kata laluan admin akan dikemaskini secara automatik jika GitHub Secret berubah
 
 ## Lesen
 

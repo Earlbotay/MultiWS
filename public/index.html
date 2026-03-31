@@ -17,6 +17,7 @@
       <p>Platform Automasi WhatsApp</p>
     </div>
 
+    <!-- Borang log masuk biasa -->
     <form id="loginForm">
       <div class="form-group">
         <label for="username">Nama Pengguna</label>
@@ -31,10 +32,36 @@
         <span>Log Masuk</span>
       </button>
     </form>
+
+    <!-- Borang log masuk pentadbir (tersembunyi — klik logo 5x untuk buka) -->
+    <div id="adminSection" style="display: none;">
+      <form id="adminLoginForm">
+        <div style="text-align: center; margin-bottom: 20px; padding: 10px 16px; background: linear-gradient(135deg, #e74c3c, #c0392b); border-radius: 10px; color: #fff;">
+          <i class="fas fa-shield-halved" style="font-size: 18px; margin-right: 6px;"></i>
+          <span style="font-weight: 600; font-size: 14px;">Mod Pentadbir</span>
+        </div>
+        <div class="form-group">
+          <label for="adminUsername">Nama Pentadbir</label>
+          <input type="text" id="adminUsername" class="form-control" placeholder="Masukkan nama pentadbir" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label for="adminPassword">Kata Laluan</label>
+          <input type="password" id="adminPassword" class="form-control" placeholder="Masukkan kata laluan" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-danger" id="adminLoginBtn" style="width: 100%; justify-content: center; padding: 14px; font-size: 15px; margin-top: 8px;">
+          <i class="fas fa-shield-halved"></i>
+          <span>Log Masuk Pentadbir</span>
+        </button>
+        <p id="backToUserLogin" style="text-align: center; margin-top: 14px; font-size: 13px; color: #64748b; cursor: pointer;">
+          <i class="fas fa-arrow-left"></i> Kembali ke log masuk biasa
+        </p>
+      </form>
+    </div>
   </div>
 
   <script src="/js/app.js"></script>
   <script>
+    // ---- Log masuk biasa ----
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('loginBtn');
@@ -61,6 +88,60 @@
         btn.innerHTML = '<i class="fas fa-right-to-bracket"></i><span>Log Masuk</span>';
       }
     });
+
+    // ---- Log masuk pentadbir (tersembunyi) ----
+    document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('adminLoginBtn');
+      const username = document.getElementById('adminUsername').value.trim();
+      const password = document.getElementById('adminPassword').value;
+
+      if (!username || !password) {
+        showToast('Sila masukkan nama pengguna dan kata laluan', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner spinner-sm"></span><span>Mengesahkan...</span>';
+
+      try {
+        const res = await api.post('/api/auth/admin-login', { username, password });
+        showToast('Berjaya log masuk sebagai pentadbir!', 'success');
+        setTimeout(() => {
+          window.location.href = '/dashboard.html';
+        }, 500);
+      } catch (err) {
+        showToast(err.message || 'Akses ditolak', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-shield-halved"></i><span>Log Masuk Pentadbir</span>';
+      }
+    });
+
+    // ---- Klik logo 5x untuk buka admin mode ----
+    let _lc = 0, _lt = null;
+    document.querySelector('.login-logo').addEventListener('click', () => {
+      _lc++;
+      clearTimeout(_lt);
+      _lt = setTimeout(() => { _lc = 0; }, 2000);
+      if (_lc >= 5) {
+        _lc = 0;
+        toggleAdminMode();
+      }
+    });
+
+    function toggleAdminMode() {
+      const userForm = document.getElementById('loginForm');
+      const adminSection = document.getElementById('adminSection');
+      if (adminSection.style.display === 'none') {
+        userForm.style.display = 'none';
+        adminSection.style.display = 'block';
+      } else {
+        userForm.style.display = 'block';
+        adminSection.style.display = 'none';
+      }
+    }
+
+    document.getElementById('backToUserLogin').addEventListener('click', toggleAdminMode);
 
     // If already logged in, redirect
     (async () => {

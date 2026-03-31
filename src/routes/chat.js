@@ -119,7 +119,8 @@ router.get('/contacts/:deviceId', (req, res) => {
     if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
 
     const contacts = db.prepare(`
-      SELECT DISTINCT sender, remote_jid,
+      SELECT sender,
+        MAX(remote_jid) as remote_jid,
         COUNT(*) as message_count,
         MAX(timestamp) as last_seen
       FROM messages 

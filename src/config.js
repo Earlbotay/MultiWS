@@ -39,4 +39,12 @@ try {
   console.error('[Config] Gagal mencipta direktori db:', err.message);
 }
 
+// Amaran keselamatan
+if (config.SESSION_SECRET === 'rahsia-sesi-lalai-multichat') {
+  console.warn('⚠️  [AMARAN KESELAMATAN] SESSION_SECRET tidak ditetapkan! Sila set dalam .env');
+}
+if (config.ADMIN_PASS === 'admin123') {
+  console.warn('⚠️  [AMARAN KESELAMATAN] Kata laluan admin lalai digunakan! Sila tukar segera.');
+}
+
 module.exports = config;

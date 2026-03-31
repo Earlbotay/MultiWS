@@ -30,7 +30,7 @@ const api = {
       return data;
     } catch (err) {
       if (err.message && !err.message.startsWith('Ralat')) {
-        throw err;
+        throw new Error(`Ralat: ${err.message}`);
       }
       throw err;
     }
@@ -58,7 +58,9 @@ function showToast(message, type = 'success') {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   const icons = { success: 'fa-check-circle', error: 'fa-times-circle', info: 'fa-info-circle' };
-  toast.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span>${message}</span>`;
+  const iconClass = icons[type] || icons.info;
+  toast.innerHTML = `<i class="fas ${iconClass}"></i><span></span>`;
+  toast.querySelector('span').textContent = message;
   container.appendChild(toast);
 
   toast.addEventListener('click', () => _removeToast(toast));
@@ -84,11 +86,11 @@ function showConfirm(title, message) {
     overlay.innerHTML = `
       <div class="modal">
         <div class="modal-header">
-          <h3>${title}</h3>
+          <h3>${escapeHtml(title)}</h3>
           <button class="modal-close" data-action="cancel">&times;</button>
         </div>
         <div class="modal-body">
-          <p>${message}</p>
+          <p>${escapeHtml(message)}</p>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" data-action="cancel">Batal</button>
@@ -133,7 +135,9 @@ function formatPhone(phone) {
 
 function formatTime(timestamp) {
   if (!timestamp) return '-';
-  const d = new Date(timestamp);
+  // Auto-detect: jika < 1 trilion, ia dalam saat → tukar ke milisaat
+  const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
+  const d = new Date(ms);
   if (isNaN(d.getTime())) return '-';
   const now = new Date();
   const isToday = d.toDateString() === now.toDateString();
@@ -150,7 +154,8 @@ function formatTime(timestamp) {
 
 function timeAgo(timestamp) {
   if (!timestamp) return '-';
-  const d = new Date(timestamp);
+  const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
+  const d = new Date(ms);
   if (isNaN(d.getTime())) return '-';
   const now = new Date();
   const diff = Math.floor((now - d) / 1000);

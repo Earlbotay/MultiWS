@@ -44,16 +44,22 @@ class WarmerService {
       throw new Error('Sesi warmer tidak dijumpai');
     }
 
-    console.log(`[Warmer] Memulakan warmer #${warmerId}`);
-    db.prepare('UPDATE warmer_sessions SET status = ? WHERE id = ?').run('running', warmerId);
-    triggerSync('warmer: sesi dimulakan');
-
     const devices = db.prepare('SELECT * FROM warmer_devices WHERE warmer_id = ?').all(warmerId);
     const messages = JSON.parse(session.messages);
 
+    // Validasi SEBELUM update status
     if (devices.length < 2) {
       throw new Error('Sekurang-kurangnya 2 peranti diperlukan untuk warmer');
     }
+
+    if (!messages || messages.length === 0) {
+      throw new Error('Senarai mesej tidak boleh kosong');
+    }
+
+    // Sekarang selamat untuk update status
+    console.log(`[Warmer] Memulakan warmer #${warmerId}`);
+    db.prepare('UPDATE warmer_sessions SET status = ? WHERE id = ?').run('running', warmerId);
+    triggerSync('warmer: sesi dimulakan');
 
     const warmerState = { timeout: null, running: true };
     this.activeWarmers.set(warmerId, warmerState);

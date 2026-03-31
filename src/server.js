@@ -52,16 +52,14 @@ app.get('/api/stats', requireAuth, (req, res) => {
   }
 });
 
-// SPA fallback - serve index.html for non-API routes
+// 404 handler untuk API endpoints yang tidak wujud
+app.use('/api', (req, res) => {
+  res.status(404).json({ success: false, error: 'Endpoint API tidak dijumpai' });
+});
+
+// SPA fallback — semua non-API routes terima index.html
 app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    const filePath = path.join(__dirname, '..', 'public', req.path);
-    res.sendFile(filePath, (err) => {
-      if (err) {
-        res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
-      }
-    });
-  }
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 // Initialize auto-reply listener

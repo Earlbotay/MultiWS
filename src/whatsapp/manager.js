@@ -144,12 +144,24 @@ class WAManager {
             session.pairingCode = null;
             this.sessions.delete(deviceId);
           } else if (shouldReconnect && session.retryCount < 3) {
-            session.retryCount++;
+            const nextRetry = session.retryCount + 1;
             session.status = 'reconnecting';
-            console.log(`[WAManager] Cuba semula sambungan peranti #${deviceId} (percubaan ${session.retryCount}/3)...`);
-            setTimeout(() => {
-              this.startSession(deviceId, method, phoneNumber);
-            }, 3000 * session.retryCount);
+            console.log(`[WAManager] Cuba semula sambungan peranti #${deviceId} (percubaan ${nextRetry}/3)...`);
+            setTimeout(async () => {
+              try {
+                await this.startSession(deviceId, method, phoneNumber);
+                // Kemaskini retryCount pada session yang baru dicipta
+                const newSession = this.sessions.get(deviceId);
+                if (newSession) {
+                  newSession.retryCount = nextRetry;
+                }
+              } catch (err) {
+                console.error(`[WAManager] Gagal menyambung semula peranti #${deviceId}: ${err.message}`);
+                db.prepare('UPDATE devices SET status = ?, updated_at = datetime(\'now\') WHERE id = ?')
+                  .run('disconnected', deviceId);
+                this.sessions.delete(deviceId);
+              }
+            }, 3000 * nextRetry);
           } else {
             console.log(`[WAManager] Peranti #${deviceId} gagal disambung semula selepas ${session.retryCount} percubaan`);
             db.prepare('UPDATE devices SET status = ?, updated_at = datetime(\'now\') WHERE id = ?')

@@ -17,6 +17,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
+    role TEXT DEFAULT 'user',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -146,13 +147,32 @@ function createUser(username, hashedPassword) {
  * Cipta akaun admin lalai jika belum wujud
  */
 function seedAdmin() {
+  // Tambah lajur role jika belum wujud (untuk DB lama)
+  try {
+    db.prepare("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'").run();
+  } catch (e) {
+    // Lajur sudah wujud, abaikan
+  }
+
   const existing = getUser(config.ADMIN_USER);
   if (!existing) {
     const salt = bcrypt.genSaltSync(10);
     const hashedPassword = bcrypt.hashSync(config.ADMIN_PASS, salt);
-    createUser(config.ADMIN_USER, hashedPassword);
-    console.log(`[Pangkalan Data] Akaun admin '${config.ADMIN_USER}' berjaya dicipta.`);
+    db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)').run(config.ADMIN_USER, hashedPassword, 'admin');
+    console.log(`[Pangkalan Data] Akaun admin '${config.ADMIN_USER}' berjaya dicipta dengan role admin.`);
   } else {
+    // Pastikan role admin sentiasa ditetapkan
+    if (existing.role !== 'admin') {
+      db.prepare('UPDATE users SET role = ? WHERE username = ?').run('admin', config.ADMIN_USER);
+      console.log(`[Pangkalan Data] Role admin dikemaskini untuk '${config.ADMIN_USER}'.`);
+    }
+    // Kemaskini kata laluan jika env berubah (untuk GitHub Secrets)
+    if (!bcrypt.compareSync(config.ADMIN_PASS, existing.password)) {
+      const salt = bcrypt.genSaltSync(10);
+      const hashedPassword = bcrypt.hashSync(config.ADMIN_PASS, salt);
+      db.prepare('UPDATE users SET password = ? WHERE username = ?').run(hashedPassword, config.ADMIN_USER);
+      console.log(`[Pangkalan Data] Kata laluan admin dikemaskini dari pembolehubah persekitaran.`);
+    }
     console.log(`[Pangkalan Data] Akaun admin '${config.ADMIN_USER}' sudah wujud.`);
   }
 }

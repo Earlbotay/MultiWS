@@ -1,6 +1,7 @@
 const { db } = require('../database');
 const waManager = require('./manager');
 const { triggerSync } = require('../sync');
+const path = require('path');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -72,10 +73,33 @@ class BlastService {
       const jid = waManager.formatJid(recipient.phone);
 
       try {
-        const content = { text: job.message };
+        let content;
 
         if (job.media_path) {
-          content.media = job.media_path;
+          const ext = path.extname(job.media_path).toLowerCase();
+          const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+          const videoExts = ['.mp4', '.avi', '.mov', '.mkv', '.3gp'];
+
+          if (imageExts.includes(ext)) {
+            content = {
+              image: { url: job.media_path },
+              caption: job.message || ''
+            };
+          } else if (videoExts.includes(ext)) {
+            content = {
+              video: { url: job.media_path },
+              caption: job.message || ''
+            };
+          } else {
+            content = {
+              document: { url: job.media_path },
+              fileName: path.basename(job.media_path),
+              mimetype: 'application/octet-stream',
+              caption: job.message || ''
+            };
+          }
+        } else {
+          content = { text: job.message };
         }
 
         await waManager.sendMessage(job.device_id, jid, content);
