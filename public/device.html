@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multichat - Pengurusan Peranti</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <div class="content">
+    <div class="content-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <h1>Pengurusan Peranti</h1>
+        <p>Sambung dan urus peranti WhatsApp anda</p>
+      </div>
+      <button class="btn btn-primary" onclick="openModal('addDeviceModal')">
+        <i class="fas fa-plus"></i> Tambah Peranti
+      </button>
+    </div>
+
+    <!-- Device Grid -->
+    <div class="device-grid" id="deviceGrid">
+      <div class="loading-overlay">
+        <div class="spinner"></div>
+        <span>Memuatkan peranti...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Device Modal -->
+  <div class="modal-overlay" id="addDeviceModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Tambah Peranti Baru</h3>
+        <button class="modal-close" onclick="closeModal('addDeviceModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="addDeviceForm">
+          <div class="form-group">
+            <label for="deviceName">Nama Peranti</label>
+            <input type="text" id="deviceName" class="form-control" placeholder="cth: Telefon Utama" required>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('addDeviceModal')">Batal</button>
+        <button class="btn btn-primary" id="addDeviceBtn" onclick="addDevice()">
+          <i class="fas fa-plus"></i> Tambah
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Code Modal -->
+  <div class="modal-overlay" id="qrModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Imbas Kod QR</h3>
+        <button class="modal-close" onclick="closeQrModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="qr-container" id="qrContainer">
+          <div class="loading-overlay">
+            <div class="spinner"></div>
+            <span>Menjana kod QR...</span>
+          </div>
+        </div>
+        <p style="text-align:center; margin-top:16px; font-size:13px; color:#888;">
+          Buka WhatsApp di telefon anda → Peranti Dipautkan → Pautkan Peranti → Imbas kod QR ini
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script>
+    let devices = [];
+    let qrPollTimer = null;
+    let statusPollTimer = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadDevices();
+      // Poll device statuses every 10s
+      statusPollTimer = setInterval(loadDevices, 10000);
+    });
+
+    async function loadDevices() {
+      try {
+        const data = await api.get('/api/devices');
+        devices = data.devices || data || [];
+        renderDevices();
+      } catch (err) {
+        document.getElementById('deviceGrid').innerHTML = `
+          <div class="empty-state" style="grid-column: 1/-1;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <h3>Ralat memuatkan peranti</h3>
+            <p>${escapeHtml(err.message)}</p>
+          </div>`;
+      }
+    }
+
+    function renderDevices() {
+      const grid = document.getElementById('deviceGrid');
+
+      if (devices.length === 0) {
+        grid.innerHTML = `
+          <div class="empty-state" style="grid-column: 1/-1;">
+            <i class="fas fa-mobile-screen-button"></i>
+            <h3>Tiada peranti</h3>
+            <p>Klik "Tambah Peranti" untuk menambah peranti WhatsApp pertama anda</p>
+          </div>`;
+        return;
+      }
+
+      grid.innerHTML = devices.map(d => {
+        const statusClass = d.status === 'connected' ? 'connected' : d.status === 'waiting_qr' ? 'waiting' : 'disconnected';
+        const statusText = d.status === 'connected' ? 'Bersambung' : d.status === 'waiting_qr' ? 'Menunggu Imbasan' : 'Terputus';
+        const phone = d.phone ? formatPhone(d.phone) : 'Belum didaftarkan';
+
+        return `
+        <div class="device-card" id="device-${d.id}">
+          <div class="device-card-header">
+            <div class="device-card-info">
+              <div class="device-card-icon">
+                <i class="fas fa-mobile-screen-button"></i>
+              </div>
+              <div>
+                <div class="device-card-name">${escapeHtml(d.name)}</div>
+                <div class="device-card-phone">${phone}</div>
+              </div>
+            </div>
+            <span class="badge badge-${statusClass}">${statusText}</span>
+          </div>
+
+          <div class="device-card-body" id="device-body-${d.id}">
+            ${d.status === 'connected' ? `
+              <div style="display:flex; align-items:center; gap:8px; color:#25D366; font-size:14px;">
+                <i class="fas fa-circle-check"></i>
+                <span>Peranti bersambung dan sedia digunakan</span>
+              </div>
+            ` : d.status === 'waiting_qr' ? `
+              <div style="text-align:center; color:#f39c12; font-size:14px;">
+                <i class="fas fa-qrcode" style="font-size:24px; margin-bottom:8px;"></i>
+                <p>Menunggu imbasan kod QR...</p>
+              </div>
+            ` : `
+              <div style="display:flex; align-items:center; gap:8px; color:#aaa; font-size:14px;">
+                <i class="fas fa-circle-xmark"></i>
+                <span>Peranti tidak bersambung</span>
+              </div>
+            `}
+          </div>
+
+          <div class="device-card-actions">
+            ${d.status === 'connected' ? `
+              <button class="btn btn-sm btn-secondary" onclick="disconnectDevice('${d.id}')">
+                <i class="fas fa-link-slash"></i> Putus Sambungan
+              </button>
+            ` : `
+              <button class="btn btn-sm btn-primary" onclick="connectDevice('${d.id}')">
+                <i class="fas fa-link"></i> Sambung
+              </button>
+            `}
+            <button class="btn btn-sm btn-danger" onclick="deleteDevice('${d.id}', '${escapeHtml(d.name)}')">
+              <i class="fas fa-trash"></i> Padam
+            </button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    async function addDevice() {
+      const name = document.getElementById('deviceName').value.trim();
+      if (!name) {
+        showToast('Sila masukkan nama peranti', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('addDeviceBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner spinner-sm"></span> Menambah...';
+
+      try {
+        await api.post('/api/devices', { name });
+        showToast('Peranti berjaya ditambah!', 'success');
+        closeModal('addDeviceModal');
+        document.getElementById('deviceName').value = '';
+        await loadDevices();
+      } catch (err) {
+        showToast(err.message || 'Gagal menambah peranti', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plus"></i> Tambah';
+      }
+    }
+
+    // Submit form on Enter
+    document.getElementById('addDeviceForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      addDevice();
+    });
+
+    async function connectDevice(id) {
+      try {
+        showToast('Menyambung peranti...', 'info');
+        await api.post(`/api/devices/${id}/connect`);
+        openModal('qrModal');
+        pollQR(id);
+      } catch (err) {
+        showToast(err.message || 'Gagal menyambung peranti', 'error');
+      }
+    }
+
+    function pollQR(deviceId) {
+      if (qrPollTimer) clearInterval(qrPollTimer);
+
+      const fetchQR = async () => {
+        try {
+          const data = await api.get(`/api/devices/${deviceId}/qr`);
+
+          if (data.status === 'connected') {
+            clearInterval(qrPollTimer);
+            qrPollTimer = null;
+            closeModal('qrModal');
+            showToast('Peranti berjaya disambungkan!', 'success');
+            await loadDevices();
+            return;
+          }
+
+          if (data.qr) {
+            document.getElementById('qrContainer').innerHTML = `
+              <img src="${data.qr}" alt="QR Code">
+              <p>Imbas kod QR ini dengan WhatsApp anda</p>
+            `;
+          }
+        } catch (err) {
+          // Continue polling
+        }
+      };
+
+      fetchQR();
+      qrPollTimer = setInterval(fetchQR, 3000);
+    }
+
+    function closeQrModal() {
+      if (qrPollTimer) {
+        clearInterval(qrPollTimer);
+        qrPollTimer = null;
+      }
+      closeModal('qrModal');
+      // Reset QR container
+      document.getElementById('qrContainer').innerHTML = `
+        <div class="loading-overlay">
+          <div class="spinner"></div>
+          <span>Menjana kod QR...</span>
+        </div>
+      `;
+    }
+
+    async function disconnectDevice(id) {
+      const ok = await showConfirm('Putus Sambungan', 'Adakah anda pasti mahu memutuskan sambungan peranti ini?');
+      if (!ok) return;
+
+      try {
+        await api.post(`/api/devices/${id}/disconnect`);
+        showToast('Peranti telah diputuskan sambungan', 'success');
+        await loadDevices();
+      } catch (err) {
+        showToast(err.message || 'Gagal memutuskan sambungan', 'error');
+      }
+    }
+
+    async function deleteDevice(id, name) {
+      const ok = await showConfirm('Padam Peranti', `Adakah anda pasti mahu memadam peranti <strong>"${name}"</strong>? Tindakan ini tidak boleh dibatalkan.`);
+      if (!ok) return;
+
+      try {
+        await api.del(`/api/devices/${id}`);
+        showToast('Peranti berjaya dipadam', 'success');
+        await loadDevices();
+      } catch (err) {
+        showToast(err.message || 'Gagal memadam peranti', 'error');
+      }
+    }
+  </script>
+
+</body>
+</html>

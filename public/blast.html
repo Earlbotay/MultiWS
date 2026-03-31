@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Broadcast Mesej - Multichat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="bg-[#0a0a1a] text-white min-h-screen">
+    <div id="sidebar"></div>
+
+    <main id="main-content" class="ml-64 p-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold"><i class="fas fa-paper-plane mr-2 text-[#25D366]"></i>Broadcast Mesej</h1>
+                <p class="text-gray-400 text-sm mt-1">Hantar mesej pukal ke senarai nombor</p>
+            </div>
+            <button onclick="showCreateModal()" class="bg-[#25D366] hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold transition">
+                <i class="fas fa-plus mr-2"></i>Buat Broadcast Baru
+            </button>
+        </div>
+
+        <!-- Job List View -->
+        <div id="jobListView">
+            <div class="bg-[#16213e] rounded-xl border border-gray-700/50 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-[#0f3460] text-gray-300 uppercase text-xs">
+                            <tr>
+                                <th class="px-4 py-3 text-left">Nama</th>
+                                <th class="px-4 py-3 text-left">Peranti</th>
+                                <th class="px-4 py-3 text-center">Status</th>
+                                <th class="px-4 py-3 text-center">Dihantar</th>
+                                <th class="px-4 py-3 text-center">Gagal</th>
+                                <th class="px-4 py-3 text-center">Jumlah</th>
+                                <th class="px-4 py-3 text-center">Tindakan</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobTableBody">
+                            <tr>
+                                <td colspan="7" class="text-center py-12 text-gray-400">
+                                    <i class="fas fa-spinner fa-spin text-2xl mb-2 block"></i>Memuatkan...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Detail View -->
+        <div id="jobDetailView" class="hidden">
+            <button onclick="showJobList()" class="mb-4 text-gray-400 hover:text-white transition">
+                <i class="fas fa-arrow-left mr-2"></i>Kembali ke Senarai
+            </button>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-[#16213e] rounded-xl p-4 border border-gray-700/50">
+                    <p class="text-gray-400 text-xs uppercase mb-1">Nama</p>
+                    <p id="detailName" class="font-semibold text-lg">-</p>
+                </div>
+                <div class="bg-[#16213e] rounded-xl p-4 border border-gray-700/50">
+                    <p class="text-gray-400 text-xs uppercase mb-1">Peranti</p>
+                    <p id="detailDevice" class="font-semibold text-lg">-</p>
+                </div>
+                <div class="bg-[#16213e] rounded-xl p-4 border border-gray-700/50">
+                    <p class="text-gray-400 text-xs uppercase mb-1">Status</p>
+                    <p id="detailStatus" class="font-semibold text-lg">-</p>
+                </div>
+                <div class="bg-[#16213e] rounded-xl p-4 border border-gray-700/50">
+                    <p class="text-gray-400 text-xs uppercase mb-1">Kemajuan</p>
+                    <div class="mt-2">
+                        <div class="flex justify-between text-xs text-gray-400 mb-1">
+                            <span id="detailProgressText">0 / 0</span>
+                            <span id="detailProgressPct">0%</span>
+                        </div>
+                        <div class="w-full bg-gray-700 rounded-full h-3">
+                            <div id="detailProgressBar" class="bg-[#25D366] h-3 rounded-full transition-all" style="width:0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-[#16213e] rounded-xl border border-gray-700/50 overflow-hidden">
+                <div class="p-4 border-b border-gray-700/50">
+                    <h3 class="font-semibold"><i class="fas fa-users mr-2"></i>Senarai Penerima</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-[#0f3460] text-gray-300 uppercase text-xs">
+                            <tr>
+                                <th class="px-4 py-3 text-left">Nombor</th>
+                                <th class="px-4 py-3 text-center">Status</th>
+                                <th class="px-4 py-3 text-left">Ralat</th>
+                                <th class="px-4 py-3 text-left">Masa</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recipientTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Create Blast Modal -->
+    <div id="createModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center hidden">
+        <div class="bg-[#16213e] rounded-2xl border border-gray-700/50 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-700/50">
+                <h2 class="text-lg font-bold"><i class="fas fa-paper-plane mr-2 text-[#25D366]"></i>Buat Broadcast Baru</h2>
+                <button onclick="hideCreateModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Nama Broadcast</label>
+                    <input id="blastName" type="text" placeholder="cth: Promosi Raya 2026" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Pilih Peranti</label>
+                    <select id="blastDevice" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none">
+                        <option value="">-- Pilih Peranti --</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Mesej</label>
+                    <textarea id="blastMessage" rows="4" placeholder="Tulis mesej anda di sini..." class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none resize-none"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Senarai Nombor <span id="phoneCount" class="text-[#25D366] font-normal">(0 nombor)</span></label>
+                    <textarea id="blastPhones" rows="5" placeholder="Satu nombor setiap baris&#10;cth:&#10;60123456789&#10;60198765432" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none resize-none font-mono text-sm" oninput="updatePhoneCount()"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Kelewatan Minimum (saat)</label>
+                        <input id="blastMinDelay" type="number" value="5" min="1" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Kelewatan Maksimum (saat)</label>
+                        <input id="blastMaxDelay" type="number" value="15" min="1" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none">
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 p-5 border-t border-gray-700/50">
+                <button onclick="hideCreateModal()" class="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition">Batal</button>
+                <button onclick="createBlast()" id="btnCreateBlast" class="px-6 py-2 rounded-lg bg-[#25D366] hover:bg-green-600 text-white font-semibold transition">
+                    <i class="fas fa-paper-plane mr-2"></i>Hantar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+    <script>
+        let refreshInterval = null;
+        let currentDetailId = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSidebar();
+            setActiveNav('blast');
+            loadJobs();
+            loadDevices();
+        });
+
+        async function loadDevices() {
+            try {
+                const res = await fetch('/api/devices');
+                const data = await res.json();
+                const select = document.getElementById('blastDevice');
+                const devices = (data.devices || data || []).filter(d => d.status === 'connected');
+                devices.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.textContent = d.name || d.id;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('Gagal memuatkan peranti:', e);
+            }
+        }
+
+        async function loadJobs() {
+            try {
+                const res = await fetch('/api/blast');
+                const data = await res.json();
+                const jobs = data.jobs || data || [];
+                renderJobs(jobs);
+
+                const hasRunning = jobs.some(j => j.status === 'running');
+                if (hasRunning && !refreshInterval) {
+                    refreshInterval = setInterval(loadJobs, 3000);
+                } else if (!hasRunning && refreshInterval) {
+                    clearInterval(refreshInterval);
+                    refreshInterval = null;
+                }
+            } catch (e) {
+                document.getElementById('jobTableBody').innerHTML = `<tr><td colspan="7" class="text-center py-8 text-red-400"><i class="fas fa-exclamation-circle mr-2"></i>Gagal memuatkan data</td></tr>`;
+            }
+        }
+
+        function renderJobs(jobs) {
+            const tbody = document.getElementById('jobTableBody');
+            if (!jobs.length) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-12 text-gray-400"><i class="fas fa-inbox text-4xl mb-3 block"></i>Tiada broadcast lagi. Klik "Buat Broadcast Baru" untuk mula.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = jobs.map(j => {
+                const sent = j.sent || 0;
+                const failed = j.failed || 0;
+                const total = j.total || j.recipientCount || 0;
+                return `<tr class="border-b border-gray-700/30 hover:bg-[#0f3460]/30 cursor-pointer" onclick="viewDetail('${j.id}')">
+                    <td class="px-4 py-3 font-medium">${esc(j.name)}</td>
+                    <td class="px-4 py-3 text-gray-300">${esc(j.deviceId || j.device || '-')}</td>
+                    <td class="px-4 py-3 text-center">${statusBadge(j.status)}</td>
+                    <td class="px-4 py-3 text-center text-green-400">${sent}</td>
+                    <td class="px-4 py-3 text-center text-red-400">${failed}</td>
+                    <td class="px-4 py-3 text-center">${total}</td>
+                    <td class="px-4 py-3 text-center" onclick="event.stopPropagation()">
+                        ${actionButtons(j)}
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function statusBadge(status) {
+            const map = {
+                pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+                running: 'bg-blue-500/20 text-blue-400 border-blue-500/30 animate-pulse',
+                paused: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+                completed: 'bg-green-500/20 text-green-400 border-green-500/30',
+                cancelled: 'bg-red-500/20 text-red-400 border-red-500/30'
+            };
+            const labels = { pending: 'Menunggu', running: 'Berjalan', paused: 'Dijeda', completed: 'Selesai', cancelled: 'Dibatalkan' };
+            const cls = map[status] || map.pending;
+            return `<span class="px-2 py-1 rounded-full text-xs border ${cls}">${labels[status] || status}</span>`;
+        }
+
+        function actionButtons(job) {
+            let btns = '';
+            if (job.status === 'pending' || job.status === 'paused') {
+                btns += `<button onclick="jobAction('${job.id}','start')" class="px-2 py-1 rounded bg-green-600/20 text-green-400 hover:bg-green-600/40 text-xs mr-1" title="Mula"><i class="fas fa-play"></i></button>`;
+            }
+            if (job.status === 'running') {
+                btns += `<button onclick="jobAction('${job.id}','pause')" class="px-2 py-1 rounded bg-orange-600/20 text-orange-400 hover:bg-orange-600/40 text-xs mr-1" title="Jeda"><i class="fas fa-pause"></i></button>`;
+            }
+            if (job.status === 'running' || job.status === 'paused') {
+                btns += `<button onclick="jobAction('${job.id}','cancel')" class="px-2 py-1 rounded bg-red-600/20 text-red-400 hover:bg-red-600/40 text-xs mr-1" title="Batal"><i class="fas fa-ban"></i></button>`;
+            }
+            if (job.status === 'completed' || job.status === 'cancelled' || job.status === 'pending') {
+                btns += `<button onclick="deleteJob('${job.id}')" class="px-2 py-1 rounded bg-red-600/20 text-red-400 hover:bg-red-600/40 text-xs" title="Padam"><i class="fas fa-trash"></i></button>`;
+            }
+            return btns;
+        }
+
+        async function jobAction(id, action) {
+            const labels = { start: 'Mulakan', pause: 'Jedakan', cancel: 'Batalkan' };
+            if (action === 'cancel' && !confirm(`Anda pasti mahu ${labels[action]} broadcast ini?`)) return;
+            try {
+                const res = await fetch(`/api/blast/${id}/${action}`, { method: 'POST' });
+                if (!res.ok) throw new Error();
+                showToast(`Broadcast berjaya di${action === 'start' ? 'mulakan' : action === 'pause' ? 'jedakan' : 'batalkan'}`, 'success');
+                loadJobs();
+                if (currentDetailId === id) viewDetail(id);
+            } catch (e) {
+                showToast('Gagal menjalankan tindakan', 'error');
+            }
+        }
+
+        async function deleteJob(id) {
+            if (!confirm('Anda pasti mahu padam broadcast ini?')) return;
+            try {
+                const res = await fetch(`/api/blast/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error();
+                showToast('Broadcast berjaya dipadam', 'success');
+                loadJobs();
+            } catch (e) {
+                showToast('Gagal memadam broadcast', 'error');
+            }
+        }
+
+        async function viewDetail(id) {
+            currentDetailId = id;
+            document.getElementById('jobListView').classList.add('hidden');
+            document.getElementById('jobDetailView').classList.remove('hidden');
+            try {
+                const res = await fetch(`/api/blast/${id}`);
+                const job = await res.json();
+                document.getElementById('detailName').textContent = job.name || '-';
+                document.getElementById('detailDevice').textContent = job.deviceId || job.device || '-';
+                document.getElementById('detailStatus').innerHTML = statusBadge(job.status);
+                const sent = job.sent || 0;
+                const total = job.total || job.recipientCount || 0;
+                const pct = total > 0 ? Math.round((sent / total) * 100) : 0;
+                document.getElementById('detailProgressText').textContent = `${sent} / ${total}`;
+                document.getElementById('detailProgressPct').textContent = `${pct}%`;
+                document.getElementById('detailProgressBar').style.width = `${pct}%`;
+
+                const recipients = job.recipients || [];
+                const rtbody = document.getElementById('recipientTableBody');
+                if (!recipients.length) {
+                    rtbody.innerHTML = `<tr><td colspan="4" class="text-center py-8 text-gray-400">Tiada data penerima</td></tr>`;
+                } else {
+                    rtbody.innerHTML = recipients.map(r => {
+                        const st = r.status === 'sent' ? '<span class="text-green-400"><i class="fas fa-check-circle"></i> Dihantar</span>'
+                            : r.status === 'failed' ? '<span class="text-red-400"><i class="fas fa-times-circle"></i> Gagal</span>'
+                            : '<span class="text-gray-400"><i class="fas fa-clock"></i> Menunggu</span>';
+                        return `<tr class="border-b border-gray-700/30">
+                            <td class="px-4 py-2 font-mono text-sm">${esc(r.phone || r.number || '-')}</td>
+                            <td class="px-4 py-2 text-center">${st}</td>
+                            <td class="px-4 py-2 text-red-400 text-sm">${esc(r.error || '-')}</td>
+                            <td class="px-4 py-2 text-gray-400 text-sm">${r.sentAt || r.timestamp || '-'}</td>
+                        </tr>`;
+                    }).join('');
+                }
+
+                if (job.status === 'running') {
+                    if (!refreshInterval) refreshInterval = setInterval(() => viewDetail(id), 3000);
+                }
+            } catch (e) {
+                showToast('Gagal memuatkan butiran broadcast', 'error');
+            }
+        }
+
+        function showJobList() {
+            currentDetailId = null;
+            document.getElementById('jobDetailView').classList.add('hidden');
+            document.getElementById('jobListView').classList.remove('hidden');
+            if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+            loadJobs();
+        }
+
+        function showCreateModal() {
+            document.getElementById('createModal').classList.remove('hidden');
+        }
+
+        function hideCreateModal() {
+            document.getElementById('createModal').classList.add('hidden');
+        }
+
+        function updatePhoneCount() {
+            const phones = document.getElementById('blastPhones').value.split('\n').map(p => p.trim()).filter(Boolean);
+            document.getElementById('phoneCount').textContent = `(${phones.length} nombor)`;
+        }
+
+        async function createBlast() {
+            const name = document.getElementById('blastName').value.trim();
+            const deviceId = document.getElementById('blastDevice').value;
+            const message = document.getElementById('blastMessage').value.trim();
+            const phones = document.getElementById('blastPhones').value.split('\n').map(p => p.trim()).filter(Boolean);
+            const minDelay = parseInt(document.getElementById('blastMinDelay').value) || 5;
+            const maxDelay = parseInt(document.getElementById('blastMaxDelay').value) || 15;
+
+            if (!name) return showToast('Sila masukkan nama broadcast', 'error');
+            if (!deviceId) return showToast('Sila pilih peranti', 'error');
+            if (!message) return showToast('Sila masukkan mesej', 'error');
+            if (!phones.length) return showToast('Sila masukkan sekurang-kurangnya satu nombor', 'error');
+            if (minDelay > maxDelay) return showToast('Kelewatan minimum tidak boleh melebihi maksimum', 'error');
+
+            const btn = document.getElementById('btnCreateBlast');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Menghantar...';
+
+            try {
+                const res = await fetch('/api/blast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, deviceId, message, phones, minDelay, maxDelay })
+                });
+                if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || 'Gagal'); }
+                showToast('Broadcast berjaya dicipta!', 'success');
+                hideCreateModal();
+                document.getElementById('blastName').value = '';
+                document.getElementById('blastMessage').value = '';
+                document.getElementById('blastPhones').value = '';
+                document.getElementById('phoneCount').textContent = '(0 nombor)';
+                loadJobs();
+            } catch (e) {
+                showToast(e.message || 'Gagal mencipta broadcast', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Hantar';
+            }
+        }
+
+        function esc(str) {
+            if (!str) return '';
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        function showToast(msg, type) {
+            if (typeof window.showAppToast === 'function') return window.showAppToast(msg, type);
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 z-[999] px-4 py-3 rounded-lg text-white text-sm font-medium shadow-lg transition-all transform ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`;
+            toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>${msg}`;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+    </script>
+</body>
+</html>

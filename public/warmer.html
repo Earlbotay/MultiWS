@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pemanasan Akaun - Multichat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="bg-[#0a0a1a] text-white min-h-screen">
+    <div id="sidebar"></div>
+
+    <main id="main-content" class="ml-64 p-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold"><i class="fas fa-fire mr-2 text-orange-400"></i>Pemanasan Akaun</h1>
+                <p class="text-gray-400 text-sm mt-1">Panaskan akaun WhatsApp dengan mesej automatik antara peranti</p>
+            </div>
+            <button onclick="showCreateModal()" class="bg-[#25D366] hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold transition">
+                <i class="fas fa-plus mr-2"></i>Buat Sesi Baru
+            </button>
+        </div>
+
+        <!-- Session Cards Grid -->
+        <div id="sessionsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="col-span-full text-center py-12 text-gray-400">
+                <i class="fas fa-spinner fa-spin text-2xl mb-2 block"></i>Memuatkan...
+            </div>
+        </div>
+    </main>
+
+    <!-- Create Session Modal -->
+    <div id="createModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center hidden">
+        <div class="bg-[#16213e] rounded-2xl border border-gray-700/50 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-700/50">
+                <h2 class="text-lg font-bold"><i class="fas fa-fire mr-2 text-orange-400"></i>Buat Sesi Pemanasan</h2>
+                <button onclick="hideCreateModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Pilih Peranti <span class="text-gray-500">(minimum 2)</span></label>
+                    <div id="deviceCheckboxes" class="bg-[#1a1a2e] border border-gray-600 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2">
+                        <p class="text-gray-500 text-sm">Memuatkan peranti...</p>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Senarai Mesej <span id="msgCount" class="text-orange-400 font-normal">(0 mesej)</span></label>
+                    <textarea id="warmerMessages" rows="5" placeholder="Satu mesej setiap baris&#10;cth:&#10;Hai, apa khabar?&#10;Selamat pagi!&#10;Terima kasih" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none resize-none" oninput="updateMsgPreview()"></textarea>
+                    <div id="msgPreview" class="flex flex-wrap gap-1 mt-2"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Selang Minimum (saat)</label>
+                        <input id="warmerMinInterval" type="number" value="30" min="5" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Selang Maksimum (saat)</label>
+                        <input id="warmerMaxInterval" type="number" value="120" min="5" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none">
+                    </div>
+                </div>
+                <div class="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-sm text-blue-300">
+                    <i class="fas fa-info-circle mr-2"></i>Peranti yang dipilih akan menghantar mesej antara satu sama lain secara rawak untuk memanaskan akaun.
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 p-5 border-t border-gray-700/50">
+                <button onclick="hideCreateModal()" class="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition">Batal</button>
+                <button onclick="createSession()" id="btnCreate" class="px-6 py-2 rounded-lg bg-[#25D366] hover:bg-green-600 text-white font-semibold transition">
+                    <i class="fas fa-plus mr-2"></i>Cipta
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+    <script>
+        let allDevices = [];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSidebar();
+            setActiveNav('warmer');
+            loadDevices();
+            loadSessions();
+        });
+
+        async function loadDevices() {
+            try {
+                const res = await fetch('/api/devices');
+                const data = await res.json();
+                allDevices = (data.devices || data || []).filter(d => d.status === 'connected');
+                renderDeviceCheckboxes();
+            } catch (e) {
+                console.error('Gagal memuatkan peranti:', e);
+            }
+        }
+
+        function renderDeviceCheckboxes() {
+            const container = document.getElementById('deviceCheckboxes');
+            if (!allDevices.length) {
+                container.innerHTML = '<p class="text-gray-500 text-sm">Tiada peranti yang disambungkan</p>';
+                return;
+            }
+            container.innerHTML = allDevices.map(d => `
+                <label class="flex items-center gap-2 cursor-pointer hover:bg-[#0f3460]/30 p-1.5 rounded">
+                    <input type="checkbox" value="${d.id}" class="device-cb w-4 h-4 rounded accent-[#25D366]">
+                    <span class="text-sm">${esc(d.name || d.id)}</span>
+                    <span class="ml-auto text-xs text-green-400"><i class="fas fa-circle text-[6px]"></i></span>
+                </label>
+            `).join('');
+        }
+
+        async function loadSessions() {
+            try {
+                const res = await fetch('/api/warmer');
+                const data = await res.json();
+                const sessions = data.sessions || data || [];
+                renderSessions(sessions);
+            } catch (e) {
+                document.getElementById('sessionsGrid').innerHTML = `<div class="col-span-full text-center py-12 text-red-400"><i class="fas fa-exclamation-circle mr-2"></i>Gagal memuatkan data</div>`;
+            }
+        }
+
+        function renderSessions(sessions) {
+            const grid = document.getElementById('sessionsGrid');
+            if (!sessions.length) {
+                grid.innerHTML = `<div class="col-span-full text-center py-16 text-gray-400">
+                    <i class="fas fa-fire text-5xl mb-4 block text-gray-600"></i>
+                    <p class="text-lg mb-1">Tiada sesi pemanasan</p>
+                    <p class="text-sm">Klik "Buat Sesi Baru" untuk mula memanaskan akaun anda.</p>
+                </div>`;
+                return;
+            }
+            grid.innerHTML = sessions.map(s => {
+                const isActive = s.status === 'active' || s.status === 'running';
+                const deviceCount = s.deviceIds ? s.deviceIds.length : (s.devices ? s.devices.length : 0);
+                return `<div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-5 hover:border-gray-600 transition">
+                    <div class="flex items-start justify-between mb-3">
+                        <div>
+                            <h3 class="font-semibold text-lg">${esc(s.name || s.id || 'Sesi')}</h3>
+                            <p class="text-gray-400 text-sm mt-0.5">${deviceCount} peranti</p>
+                        </div>
+                        <span class="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${isActive ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}">
+                            <span class="w-2 h-2 rounded-full ${isActive ? 'bg-green-400 animate-pulse' : 'bg-red-400'}"></span>
+                            ${isActive ? 'Aktif' : 'Berhenti'}
+                        </span>
+                    </div>
+                    <div class="text-sm text-gray-400 mb-4 space-y-1">
+                        <p><i class="fas fa-clock mr-2 w-4 text-center"></i>Selang: ${s.minInterval || '-'}s - ${s.maxInterval || '-'}s</p>
+                        <p><i class="fas fa-comment mr-2 w-4 text-center"></i>${s.messages ? s.messages.length : 0} mesej</p>
+                    </div>
+                    <div class="flex gap-2">
+                        ${isActive
+                            ? `<button onclick="stopSession('${s.id}')" class="flex-1 px-3 py-2 rounded-lg bg-orange-600/20 text-orange-400 hover:bg-orange-600/40 text-sm font-medium transition"><i class="fas fa-stop mr-1"></i>Berhenti</button>`
+                            : `<button onclick="startSession('${s.id}')" class="flex-1 px-3 py-2 rounded-lg bg-green-600/20 text-green-400 hover:bg-green-600/40 text-sm font-medium transition"><i class="fas fa-play mr-1"></i>Mula</button>`
+                        }
+                        <button onclick="deleteSession('${s.id}')" class="px-3 py-2 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/40 text-sm font-medium transition"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function updateMsgPreview() {
+            const msgs = document.getElementById('warmerMessages').value.split('\n').map(m => m.trim()).filter(Boolean);
+            document.getElementById('msgCount').textContent = `(${msgs.length} mesej)`;
+            document.getElementById('msgPreview').innerHTML = msgs.slice(0, 10).map(m =>
+                `<span class="bg-[#0f3460] text-xs px-2 py-1 rounded-full text-gray-300">${esc(m.length > 30 ? m.slice(0, 30) + '…' : m)}</span>`
+            ).join('') + (msgs.length > 10 ? `<span class="text-xs text-gray-500">+${msgs.length - 10} lagi</span>` : '');
+        }
+
+        async function createSession() {
+            const deviceIds = [...document.querySelectorAll('.device-cb:checked')].map(cb => cb.value);
+            const messages = document.getElementById('warmerMessages').value.split('\n').map(m => m.trim()).filter(Boolean);
+            const minInterval = parseInt(document.getElementById('warmerMinInterval').value) || 30;
+            const maxInterval = parseInt(document.getElementById('warmerMaxInterval').value) || 120;
+
+            if (deviceIds.length < 2) return showToast('Sila pilih sekurang-kurangnya 2 peranti', 'error');
+            if (!messages.length) return showToast('Sila masukkan sekurang-kurangnya 1 mesej', 'error');
+            if (minInterval > maxInterval) return showToast('Selang minimum tidak boleh melebihi maksimum', 'error');
+
+            const btn = document.getElementById('btnCreate');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Mencipta...';
+
+            try {
+                const res = await fetch('/api/warmer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ deviceIds, messages, minInterval, maxInterval })
+                });
+                if (!res.ok) throw new Error();
+                showToast('Sesi pemanasan berjaya dicipta!', 'success');
+                hideCreateModal();
+                document.querySelectorAll('.device-cb').forEach(cb => cb.checked = false);
+                document.getElementById('warmerMessages').value = '';
+                updateMsgPreview();
+                loadSessions();
+            } catch (e) {
+                showToast('Gagal mencipta sesi', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-plus mr-2"></i>Cipta';
+            }
+        }
+
+        async function startSession(id) {
+            try {
+                const res = await fetch(`/api/warmer/${id}/start`, { method: 'POST' });
+                if (!res.ok) throw new Error();
+                showToast('Sesi pemanasan dimulakan', 'success');
+                loadSessions();
+            } catch (e) {
+                showToast('Gagal memulakan sesi', 'error');
+            }
+        }
+
+        async function stopSession(id) {
+            try {
+                const res = await fetch(`/api/warmer/${id}/stop`, { method: 'POST' });
+                if (!res.ok) throw new Error();
+                showToast('Sesi pemanasan dihentikan', 'success');
+                loadSessions();
+            } catch (e) {
+                showToast('Gagal menghentikan sesi', 'error');
+            }
+        }
+
+        async function deleteSession(id) {
+            if (!confirm('Anda pasti mahu padam sesi pemanasan ini?')) return;
+            try {
+                const res = await fetch(`/api/warmer/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error();
+                showToast('Sesi berjaya dipadam', 'success');
+                loadSessions();
+            } catch (e) {
+                showToast('Gagal memadam sesi', 'error');
+            }
+        }
+
+        function showCreateModal() { document.getElementById('createModal').classList.remove('hidden'); }
+        function hideCreateModal() { document.getElementById('createModal').classList.add('hidden'); }
+
+        function esc(str) {
+            if (!str) return '';
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        function showToast(msg, type) {
+            if (typeof window.showAppToast === 'function') return window.showAppToast(msg, type);
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 z-[999] px-4 py-3 rounded-lg text-white text-sm font-medium shadow-lg ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`;
+            toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>${msg}`;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Balas - Multichat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="bg-[#0a0a1a] text-white min-h-screen">
+    <div id="sidebar"></div>
+
+    <main id="main-content" class="ml-64 p-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold"><i class="fas fa-reply mr-2 text-[#25D366]"></i>Auto Balas</h1>
+                <p class="text-gray-400 text-sm mt-1">Tetapkan peraturan balas automatik berdasarkan kata kunci</p>
+            </div>
+            <button onclick="showRuleModal()" class="bg-[#25D366] hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold transition">
+                <i class="fas fa-plus mr-2"></i>Tambah Peraturan
+            </button>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-4 mb-4">
+            <div class="flex items-center gap-3">
+                <label class="text-sm text-gray-400 whitespace-nowrap"><i class="fas fa-filter mr-1"></i>Tapis Peranti:</label>
+                <select id="filterDevice" onchange="loadRules()" class="bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-[#25D366] focus:outline-none">
+                    <option value="">Semua Peranti</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Rules Table -->
+        <div class="bg-[#16213e] rounded-xl border border-gray-700/50 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-[#0f3460] text-gray-300 uppercase text-xs">
+                        <tr>
+                            <th class="px-4 py-3 text-left w-10">#</th>
+                            <th class="px-4 py-3 text-left">Peranti</th>
+                            <th class="px-4 py-3 text-left">Kata Kunci</th>
+                            <th class="px-4 py-3 text-left">Jenis Padanan</th>
+                            <th class="px-4 py-3 text-left">Mesej Balas</th>
+                            <th class="px-4 py-3 text-center">Status</th>
+                            <th class="px-4 py-3 text-center">Tindakan</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rulesBody">
+                        <tr>
+                            <td colspan="7" class="text-center py-12 text-gray-400">
+                                <i class="fas fa-spinner fa-spin text-2xl mb-2 block"></i>Memuatkan...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Add/Edit Rule Modal -->
+    <div id="ruleModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center hidden">
+        <div class="bg-[#16213e] rounded-2xl border border-gray-700/50 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-700/50">
+                <h2 id="modalTitle" class="text-lg font-bold"><i class="fas fa-reply mr-2 text-[#25D366]"></i>Tambah Peraturan</h2>
+                <button onclick="hideRuleModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-5 space-y-4">
+                <input type="hidden" id="editRuleId">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Pilih Peranti</label>
+                    <select id="ruleDevice" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none">
+                        <option value="">-- Pilih Peranti --</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Kata Kunci</label>
+                    <input id="ruleKeyword" type="text" placeholder="cth: harga, salam, promosi" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none" oninput="updatePreview()">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Jenis Padanan</label>
+                    <select id="ruleMatchType" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none" onchange="updatePreview()">
+                        <option value="exact">Tepat</option>
+                        <option value="contains">Mengandungi</option>
+                        <option value="startswith">Bermula Dengan</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Mesej Balas</label>
+                    <textarea id="ruleReply" rows="3" placeholder="Mesej yang akan dibalas secara automatik" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none resize-none" oninput="updatePreview()"></textarea>
+                </div>
+
+                <!-- Preview -->
+                <div id="rulePreview" class="bg-[#0f3460]/50 border border-gray-700/50 rounded-lg p-3 text-sm text-gray-300 hidden">
+                    <p class="text-xs text-gray-500 uppercase mb-1">Pratonton</p>
+                    <p id="previewText"></p>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 p-5 border-t border-gray-700/50">
+                <button onclick="hideRuleModal()" class="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition">Batal</button>
+                <button onclick="saveRule()" id="btnSaveRule" class="px-6 py-2 rounded-lg bg-[#25D366] hover:bg-green-600 text-white font-semibold transition">
+                    <i class="fas fa-save mr-2"></i>Simpan
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+    <script>
+        let allDevices = [];
+        let rules = [];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSidebar();
+            setActiveNav('autoreply');
+            loadDevices();
+            loadRules();
+        });
+
+        async function loadDevices() {
+            try {
+                const res = await fetch('/api/devices');
+                const data = await res.json();
+                allDevices = (data.devices || data || []).filter(d => d.status === 'connected');
+                const filterSelect = document.getElementById('filterDevice');
+                const ruleSelect = document.getElementById('ruleDevice');
+                allDevices.forEach(d => {
+                    const opt1 = document.createElement('option');
+                    opt1.value = d.id;
+                    opt1.textContent = d.name || d.id;
+                    filterSelect.appendChild(opt1);
+
+                    const opt2 = document.createElement('option');
+                    opt2.value = d.id;
+                    opt2.textContent = d.name || d.id;
+                    ruleSelect.appendChild(opt2);
+                });
+            } catch (e) {
+                console.error('Gagal memuatkan peranti:', e);
+            }
+        }
+
+        async function loadRules() {
+            try {
+                const deviceId = document.getElementById('filterDevice').value;
+                let url = '/api/autoreply';
+                if (deviceId) url += `?deviceId=${deviceId}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                rules = data.rules || data || [];
+                renderRules();
+            } catch (e) {
+                document.getElementById('rulesBody').innerHTML = `<tr><td colspan="7" class="text-center py-8 text-red-400"><i class="fas fa-exclamation-circle mr-2"></i>Gagal memuatkan data</td></tr>`;
+            }
+        }
+
+        function renderRules() {
+            const tbody = document.getElementById('rulesBody');
+            if (!rules.length) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-12 text-gray-400">
+                    <i class="fas fa-reply text-4xl mb-3 block text-gray-600"></i>
+                    <p class="text-lg mb-1">Tiada peraturan auto balas</p>
+                    <p class="text-sm">Klik "Tambah Peraturan" untuk mula.</p>
+                </td></tr>`;
+                return;
+            }
+            const matchLabels = { exact: 'Tepat', contains: 'Mengandungi', startswith: 'Bermula Dengan' };
+            const matchColors = { exact: 'bg-blue-500/20 text-blue-400', contains: 'bg-purple-500/20 text-purple-400', startswith: 'bg-yellow-500/20 text-yellow-400' };
+
+            tbody.innerHTML = rules.map((r, i) => `
+                <tr class="border-b border-gray-700/30 hover:bg-[#0f3460]/20">
+                    <td class="px-4 py-3 text-gray-500">${i + 1}</td>
+                    <td class="px-4 py-3 text-gray-300">${esc(r.deviceId || '-')}</td>
+                    <td class="px-4 py-3 font-medium"><code class="bg-[#0f3460] px-2 py-0.5 rounded text-[#25D366]">${esc(r.keyword)}</code></td>
+                    <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs ${matchColors[r.matchType] || ''}">${matchLabels[r.matchType] || r.matchType}</span></td>
+                    <td class="px-4 py-3 text-gray-300 max-w-[200px] truncate">${esc(r.reply || r.replyMessage || '')}</td>
+                    <td class="px-4 py-3 text-center">
+                        <button onclick="toggleRule('${r.id}')" class="relative inline-flex h-6 w-11 items-center rounded-full transition ${r.active !== false ? 'bg-[#25D366]' : 'bg-gray-600'}">
+                            <span class="inline-block h-4 w-4 transform rounded-full bg-white transition ${r.active !== false ? 'translate-x-6' : 'translate-x-1'}"></span>
+                        </button>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <button onclick="editRule('${r.id}')" class="px-2 py-1 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 text-xs mr-1" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button onclick="deleteRule('${r.id}')" class="px-2 py-1 rounded bg-red-600/20 text-red-400 hover:bg-red-600/40 text-xs" title="Padam"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function showRuleModal(rule) {
+            document.getElementById('editRuleId').value = rule ? rule.id : '';
+            document.getElementById('modalTitle').innerHTML = rule
+                ? '<i class="fas fa-edit mr-2 text-blue-400"></i>Edit Peraturan'
+                : '<i class="fas fa-reply mr-2 text-[#25D366]"></i>Tambah Peraturan';
+            document.getElementById('ruleDevice').value = rule ? rule.deviceId : '';
+            document.getElementById('ruleKeyword').value = rule ? rule.keyword : '';
+            document.getElementById('ruleMatchType').value = rule ? rule.matchType : 'exact';
+            document.getElementById('ruleReply').value = rule ? (rule.reply || rule.replyMessage || '') : '';
+            updatePreview();
+            document.getElementById('ruleModal').classList.remove('hidden');
+        }
+
+        function hideRuleModal() {
+            document.getElementById('ruleModal').classList.add('hidden');
+        }
+
+        function updatePreview() {
+            const keyword = document.getElementById('ruleKeyword').value.trim();
+            const matchType = document.getElementById('ruleMatchType').value;
+            const reply = document.getElementById('ruleReply').value.trim();
+            const preview = document.getElementById('rulePreview');
+            const previewText = document.getElementById('previewText');
+
+            if (keyword && reply) {
+                const matchLabels = { exact: 'tepat', contains: 'mengandungi', startswith: 'bermula dengan' };
+                previewText.innerHTML = `Jika mesej <strong>${matchLabels[matchType]}</strong> '<strong class="text-[#25D366]">${esc(keyword)}</strong>', balas: '<strong class="text-blue-400">${esc(reply.length > 80 ? reply.slice(0, 80) + '…' : reply)}</strong>'`;
+                preview.classList.remove('hidden');
+            } else {
+                preview.classList.add('hidden');
+            }
+        }
+
+        function editRule(id) {
+            const rule = rules.find(r => r.id === id);
+            if (rule) showRuleModal(rule);
+        }
+
+        async function saveRule() {
+            const id = document.getElementById('editRuleId').value;
+            const deviceId = document.getElementById('ruleDevice').value;
+            const keyword = document.getElementById('ruleKeyword').value.trim();
+            const matchType = document.getElementById('ruleMatchType').value;
+            const reply = document.getElementById('ruleReply').value.trim();
+
+            if (!deviceId) return showToast('Sila pilih peranti', 'error');
+            if (!keyword) return showToast('Sila masukkan kata kunci', 'error');
+            if (!reply) return showToast('Sila masukkan mesej balas', 'error');
+
+            const btn = document.getElementById('btnSaveRule');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Menyimpan...';
+
+            try {
+                const body = { deviceId, keyword, matchType, reply };
+                let res;
+                if (id) {
+                    res = await fetch(`/api/autoreply/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                } else {
+                    res = await fetch('/api/autoreply', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                }
+                if (!res.ok) throw new Error();
+                showToast(id ? 'Peraturan berjaya dikemas kini' : 'Peraturan berjaya ditambah', 'success');
+                hideRuleModal();
+                loadRules();
+            } catch (e) {
+                showToast('Gagal menyimpan peraturan', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save mr-2"></i>Simpan';
+            }
+        }
+
+        async function toggleRule(id) {
+            try {
+                const res = await fetch(`/api/autoreply/${id}/toggle`, { method: 'POST' });
+                if (!res.ok) throw new Error();
+                loadRules();
+            } catch (e) {
+                showToast('Gagal menukar status', 'error');
+            }
+        }
+
+        async function deleteRule(id) {
+            if (!confirm('Anda pasti mahu padam peraturan ini?')) return;
+            try {
+                const res = await fetch(`/api/autoreply/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error();
+                showToast('Peraturan berjaya dipadam', 'success');
+                loadRules();
+            } catch (e) {
+                showToast('Gagal memadam peraturan', 'error');
+            }
+        }
+
+        function esc(str) {
+            if (!str) return '';
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        function showToast(msg, type) {
+            if (typeof window.showAppToast === 'function') return window.showAppToast(msg, type);
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 z-[999] px-4 py-3 rounded-lg text-white text-sm font-medium shadow-lg ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`;
+            toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>${msg}`;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+    </script>
+</body>
+</html>

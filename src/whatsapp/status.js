@@ -1,0 +1,89 @@
+const fs = require('fs');
+const waManager = require('./manager');
+
+class StatusService {
+  constructor() {
+    console.log('[Status] Servis status WhatsApp dimulakan');
+  }
+
+  async postTextStatus(deviceId, text, backgroundColor, font) {
+    console.log(`[Status] Menghantar status teks untuk peranti ${deviceId}`);
+
+    const socket = waManager.getSocket(deviceId);
+    if (!socket) {
+      throw new Error('Peranti tidak disambungkan');
+    }
+
+    const content = {
+      text,
+    };
+
+    if (backgroundColor) {
+      content.backgroundColor = backgroundColor;
+    }
+
+    if (font) {
+      content.font = font;
+    }
+
+    const result = await socket.sendMessage('status@broadcast', content);
+    console.log(`[Status] Status teks berjaya dihantar untuk peranti ${deviceId}`);
+    return result;
+  }
+
+  async postImageStatus(deviceId, imagePath, caption) {
+    console.log(`[Status] Menghantar status gambar untuk peranti ${deviceId}`);
+
+    const socket = waManager.getSocket(deviceId);
+    if (!socket) {
+      throw new Error('Peranti tidak disambungkan');
+    }
+
+    if (!fs.existsSync(imagePath)) {
+      throw new Error('Fail gambar tidak dijumpai');
+    }
+
+    const buffer = fs.readFileSync(imagePath);
+
+    const content = {
+      image: buffer,
+    };
+
+    if (caption) {
+      content.caption = caption;
+    }
+
+    const result = await socket.sendMessage('status@broadcast', content);
+    console.log(`[Status] Status gambar berjaya dihantar untuk peranti ${deviceId}`);
+    return result;
+  }
+
+  async postVideoStatus(deviceId, videoPath, caption) {
+    console.log(`[Status] Menghantar status video untuk peranti ${deviceId}`);
+
+    const socket = waManager.getSocket(deviceId);
+    if (!socket) {
+      throw new Error('Peranti tidak disambungkan');
+    }
+
+    if (!fs.existsSync(videoPath)) {
+      throw new Error('Fail video tidak dijumpai');
+    }
+
+    const buffer = fs.readFileSync(videoPath);
+
+    const content = {
+      video: buffer,
+    };
+
+    if (caption) {
+      content.caption = caption;
+    }
+
+    const result = await socket.sendMessage('status@broadcast', content);
+    console.log(`[Status] Status video berjaya dihantar untuk peranti ${deviceId}`);
+    return result;
+  }
+}
+
+module.exports = new StatusService();

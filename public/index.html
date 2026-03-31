@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multichat - Log Masuk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="login-page">
+
+  <div class="login-card">
+    <div class="login-logo">
+      <i class="fab fa-whatsapp"></i>
+      <h1>Multichat</h1>
+      <p>Platform Automasi WhatsApp</p>
+    </div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="username">Nama Pengguna</label>
+        <input type="text" id="username" class="form-control" placeholder="Masukkan nama pengguna" required autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label for="password">Kata Laluan</label>
+        <input type="password" id="password" class="form-control" placeholder="Masukkan kata laluan" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary" id="loginBtn" style="width: 100%; justify-content: center; padding: 14px; font-size: 15px; margin-top: 8px;">
+        <i class="fas fa-right-to-bracket"></i>
+        <span>Log Masuk</span>
+      </button>
+    </form>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      if (!username || !password) {
+        showToast('Sila masukkan nama pengguna dan kata laluan', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner spinner-sm"></span><span>Sedang log masuk...</span>';
+
+      try {
+        const res = await api.post('/api/auth/login', { username, password });
+        showToast('Berjaya log masuk!', 'success');
+        setTimeout(() => {
+          window.location.href = '/dashboard.html';
+        }, 500);
+      } catch (err) {
+        showToast(err.message || 'Nama pengguna atau kata laluan salah', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-right-to-bracket"></i><span>Log Masuk</span>';
+      }
+    });
+
+    // If already logged in, redirect
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (res.ok) window.location.href = '/dashboard.html';
+      } catch (_) {}
+    })();
+  </script>
+
+</body>
+</html>

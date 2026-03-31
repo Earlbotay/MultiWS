@@ -1,0 +1,101 @@
+name: Multichat Platform
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */5 * * *'  # Every 5 hours as fallback restart
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5 hours
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: deps-${{ hashFiles('package.json') }}
+          restore-keys: deps-
+
+      - name: Install dependencies
+        run: npm install --production
+
+      - name: Clone data repo
+        run: |
+          git clone https://x-access-token:${{ secrets.DATA_REPO_TOKEN }}@github.com/${{ secrets.DATA_REPO }}.git data
+          # Create default directories if first run
+          mkdir -p data/auth data/uploads data/db
+          # Copy database if exists
+          if [ -f data/db/multichat.db ]; then
+            echo "Pangkalan data sedia ada dijumpai"
+          fi
+
+      - name: Install Cloudflare Tunnel
+        run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+
+      - name: Start services
+        env:
+          CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
+          DATA_DIR: ./data
+          PORT: 8080
+          SESSION_SECRET: ${{ github.sha }}
+        run: |
+          # Start Cloudflare Tunnel
+          ./cloudflared tunnel run --token $CF_TUNNEL_TOKEN &
+          CF_PID=$!
+          
+          # Start the app
+          node src/server.js &
+          APP_PID=$!
+          
+          echo "Multichat dimulakan pada port 8080"
+          echo "PID Aplikasi: $APP_PID"
+          echo "PID Tunnel: $CF_PID"
+          
+          # Data sync loop - every 10 minutes
+          while true; do
+            sleep 600
+            cd data
+            git add -A
+            if git diff --cached --quiet; then
+              echo "$(date): Tiada perubahan data"
+            else
+              git commit -m "sync: $(date '+%Y-%m-%d %H:%M:%S')"
+              git push origin main || echo "Gagal push data"
+              echo "$(date): Data disinkronkan"
+            fi
+            cd ..
+          done &
+          SYNC_PID=$!
+          
+          # Wait for 4 hours 55 minutes (295 minutes), then graceful shutdown
+          sleep 17700
+          
+          echo "Mematikan perkhidmatan..."
+          
+          # Final data sync before shutdown
+          cd data
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "sync akhir: $(date '+%Y-%m-%d %H:%M:%S')"
+            git push origin main || echo "Gagal push data akhir"
+            echo "Sinkronisasi akhir selesai"
+          fi
+          cd ..
+          
+          # Kill processes
+          kill $APP_PID 2>/dev/null
+          kill $CF_PID 2>/dev/null
+          kill $SYNC_PID 2>/dev/null
+          
+          echo "Multichat dimatikan. Akan dimulakan semula oleh jadual."

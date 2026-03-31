@@ -1,0 +1,24 @@
+{
+  "name": "multichat",
+  "version": "1.0.0",
+  "description": "Platform automasi WhatsApp",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "setup": "bash scripts/setup-data-repo.sh",
+    "sync": "bash scripts/sync-data.sh"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "express": "^4.21.2",
+    "better-sqlite3": "^11.7.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "express-session": "^1.18.1",
+    "qrcode": "^1.5.4",
+    "multer": "^1.4.5-lts.1",
+    "pino": "^9.6.0",
+    "dotenv": "^16.4.7",
+    "simple-git": "^3.27.0"
+  }
+}
