@@ -12,9 +12,9 @@ const config = {
   DATA_REPO: process.env.DATA_REPO || '',
   GH_TOKEN: process.env.GH_TOKEN || '',
   CF_TUNNEL_TOKEN: process.env.CF_TUNNEL_TOKEN || '',
-  DATA_DIR: path.join(process.cwd(), 'data'),
-  DB_PATH: path.join(process.cwd(), 'data', 'multichat.db'),
-  SESSIONS_DIR: path.join(process.cwd(), 'data', 'sessions'),
+  DATA_DIR: process.env.DATA_DIR || path.join(process.cwd(), 'MULTIWSDATA'),
+  DB_PATH: path.join(process.env.DATA_DIR || path.join(process.cwd(), 'MULTIWSDATA'), 'db', 'multichat.db'),
+  SESSIONS_DIR: path.join(process.env.DATA_DIR || path.join(process.cwd(), 'MULTIWSDATA'), 'sessions'),
 };
 
 // Pastikan direktori data dan sesi wujud
@@ -30,6 +30,13 @@ try {
   console.log('[Config] Direktori sesi disahkan:', config.SESSIONS_DIR);
 } catch (err) {
   console.error('[Config] Gagal mencipta direktori sesi:', err.message);
+}
+
+try {
+  fs.mkdirSync(path.join(config.DATA_DIR, 'db'), { recursive: true });
+  console.log('[Config] Direktori db disahkan');
+} catch (err) {
+  console.error('[Config] Gagal mencipta direktori db:', err.message);
 }
 
 module.exports = config;

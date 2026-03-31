@@ -1,4 +1,4 @@
-const db = require('../database');
+const { db } = require('../database');
 const waManager = require('./manager');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));

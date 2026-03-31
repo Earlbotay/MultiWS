@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../auth');
 const warmerService = require('../whatsapp/warmer');
-const db = require('../database');
+const { db } = require('../database');
 
 router.use(requireAuth);
 

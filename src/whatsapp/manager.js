@@ -9,7 +9,7 @@ const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
 const config = require('../config');
-const db = require('../database');
+const { db } = require('../database');
 
 class WAManager {
   constructor() {
@@ -21,12 +21,24 @@ class WAManager {
 
   /**
    * Mulakan sesi WhatsApp untuk peranti tertentu
+   * @param {number} deviceId
+   * @param {string} method - 'qr' atau 'pairing'
+   * @param {string} phoneNumber - nombor telefon untuk pairing code
    */
-  async startSession(deviceId) {
+  async startSession(deviceId, method = 'qr', phoneNumber = null) {
     try {
       const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(deviceId);
       if (!device) {
         throw new Error('Peranti tidak dijumpai dalam pangkalan data');
+      }
+
+      // Hentikan sesi sedia ada jika wujud
+      if (this.sessions.has(deviceId)) {
+        try {
+          const existing = this.sessions.get(deviceId);
+          existing.socket.end(new Error('Memulakan semula sesi'));
+        } catch (e) {}
+        this.sessions.delete(deviceId);
       }
 
       const authDir = path.join(config.SESSIONS_DIR, `device_${deviceId}`);
@@ -37,7 +49,7 @@ class WAManager {
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
       const { version } = await fetchLatestBaileysVersion();
 
-      console.log(`[WAManager] Memulakan sesi untuk peranti #${deviceId} dengan versi Baileys ${version.join('.')}`);
+      console.log(`[WAManager] Memulakan sesi untuk peranti #${deviceId} (kaedah: ${method}) dengan versi Baileys ${version.join('.')}`);
 
       const socket = makeWASocket({
         auth: {
@@ -54,7 +66,9 @@ class WAManager {
         socket,
         saveCreds,
         qr: null,
+        pairingCode: null,
         status: 'connecting',
+        method,
         retryCount: 0
       });
 
@@ -65,16 +79,33 @@ class WAManager {
 
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
+        if (qr && method === 'qr') {
           console.log(`[WAManager] Kod QR diterima untuk peranti #${deviceId}`);
           session.qr = qr;
           session.status = 'waiting_qr';
+        }
+
+        // Minta pairing code bila dapat QR pertama (untuk kaedah pairing)
+        if (qr && method === 'pairing' && !session.pairingCode && phoneNumber) {
+          try {
+            let cleaned = phoneNumber.replace(/[\s\-\+\(\)]/g, '');
+            console.log(`[WAManager] Meminta pairing code untuk ${cleaned}...`);
+            const code = await socket.requestPairingCode(cleaned);
+            session.pairingCode = code;
+            session.status = 'waiting_pairing';
+            console.log(`[WAManager] Pairing code untuk peranti #${deviceId}: ${code}`);
+          } catch (err) {
+            console.error(`[WAManager] Gagal mendapatkan pairing code: ${err.message}`);
+            session.status = 'error';
+            session.error = 'Gagal mendapatkan pairing code. Pastikan nombor telefon betul.';
+          }
         }
 
         if (connection === 'open') {
           console.log(`[WAManager] Peranti #${deviceId} berjaya disambung`);
           session.status = 'connected';
           session.qr = null;
+          session.pairingCode = null;
           session.retryCount = 0;
 
           // Dapatkan nombor telefon dari socket.user.id
@@ -95,7 +126,6 @@ class WAManager {
 
           if (statusCode === DisconnectReason.loggedOut) {
             console.log(`[WAManager] Peranti #${deviceId} telah log keluar. Memadam sesi...`);
-            // Padam fail sesi
             const sessionAuthDir = path.join(config.SESSIONS_DIR, `device_${deviceId}`);
             if (fs.existsSync(sessionAuthDir)) {
               fs.rmSync(sessionAuthDir, { recursive: true, force: true });
@@ -104,13 +134,14 @@ class WAManager {
               .run('disconnected', deviceId);
             session.status = 'disconnected';
             session.qr = null;
+            session.pairingCode = null;
             this.sessions.delete(deviceId);
           } else if (shouldReconnect && session.retryCount < 3) {
             session.retryCount++;
             session.status = 'reconnecting';
             console.log(`[WAManager] Cuba semula sambungan peranti #${deviceId} (percubaan ${session.retryCount}/3)...`);
             setTimeout(() => {
-              this.startSession(deviceId);
+              this.startSession(deviceId, method, phoneNumber);
             }, 3000 * session.retryCount);
           } else {
             console.log(`[WAManager] Peranti #${deviceId} gagal disambung semula selepas ${session.retryCount} percubaan`);
@@ -132,12 +163,10 @@ class WAManager {
 
         for (const msg of msgs) {
           try {
-            // Langkau mesej keluar (kecuali status broadcast)
             if (msg.key.fromMe && msg.key.remoteJid !== 'status@broadcast') {
               continue;
             }
 
-            // Ekstrak teks mesej
             const messageContent = msg.message;
             if (!messageContent) continue;
 
@@ -167,7 +196,6 @@ class WAManager {
               ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low || 0)
               : Math.floor(Date.now() / 1000);
 
-            // Simpan ke jadual mesej
             db.prepare(
               `INSERT INTO messages (device_id, remote_jid, sender, message, is_outgoing, timestamp, created_at)
                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
@@ -182,7 +210,6 @@ class WAManager {
 
             console.log(`[WAManager] Mesej baru diterima untuk peranti #${deviceId} dari ${sender}`);
 
-            // Panggil setiap pengendali mesej
             for (const handler of this.messageHandlers) {
               try {
                 await handler(deviceId, msg, socket);
@@ -232,20 +259,15 @@ class WAManager {
     try {
       console.log(`[WAManager] Memadam sesi dan data peranti #${deviceId}...`);
 
-      // Hentikan sesi terlebih dahulu
       await this.stopSession(deviceId);
 
-      // Padam direktori pengesahan
       const authDir = path.join(config.SESSIONS_DIR, `device_${deviceId}`);
       if (fs.existsSync(authDir)) {
         fs.rmSync(authDir, { recursive: true, force: true });
         console.log(`[WAManager] Direktori sesi peranti #${deviceId} telah dipadam`);
       }
 
-      // Padam mesej berkaitan
       db.prepare('DELETE FROM messages WHERE device_id = ?').run(deviceId);
-
-      // Padam peranti dari pangkalan data
       db.prepare('DELETE FROM devices WHERE id = ?').run(deviceId);
 
       console.log(`[WAManager] Peranti #${deviceId} dan semua data berkaitan telah dipadam`);
@@ -264,11 +286,27 @@ class WAManager {
   }
 
   /**
+   * Dapatkan pairing code untuk peranti tertentu
+   */
+  getPairingCode(deviceId) {
+    const session = this.sessions.get(deviceId);
+    return session ? session.pairingCode : null;
+  }
+
+  /**
    * Dapatkan status semasa peranti
    */
   getStatus(deviceId) {
     const session = this.sessions.get(deviceId);
     return session ? session.status : 'disconnected';
+  }
+
+  /**
+   * Dapatkan maklumat ralat
+   */
+  getError(deviceId) {
+    const session = this.sessions.get(deviceId);
+    return session ? session.error : null;
   }
 
   /**
@@ -292,7 +330,6 @@ class WAManager {
       console.log(`[WAManager] Menghantar mesej dari peranti #${deviceId} ke ${jid}`);
       const result = await session.socket.sendMessage(jid, content, options);
 
-      // Simpan mesej keluar ke pangkalan data
       const text = content.text || content.caption || '[media]';
       db.prepare(
         `INSERT INTO messages (device_id, remote_jid, sender, message, is_outgoing, timestamp, created_at)

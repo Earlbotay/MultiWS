@@ -11,10 +11,10 @@ router.use(requireAuth);
 router.get('/', (req, res) => {
   try {
     const devices = db.prepare('SELECT * FROM devices WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
-    // Tambah status langsung
+    // Tambah status langsung dari WAManager
     const devicesWithStatus = devices.map(d => ({
       ...d,
-      liveStatus: waManager.getStatus(d.id)
+      status: waManager.getStatus(d.id) || d.status
     }));
     res.json({ success: true, data: devicesWithStatus });
   } catch (err) {
@@ -23,33 +23,41 @@ router.get('/', (req, res) => {
   }
 });
 
-// Tambah peranti
-router.post('/', (req, res) => {
+// Tambah peranti dan mulakan sesi
+router.post('/', async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, phone, method } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nama peranti diperlukan' });
+    if (!phone) return res.status(400).json({ success: false, error: 'Nombor telefon diperlukan' });
 
-    const result = db.prepare('INSERT INTO devices (user_id, name) VALUES (?, ?)').run(req.user.id, name.trim());
+    const connectMethod = method === 'pairing' ? 'pairing' : 'qr';
+
+    const result = db.prepare('INSERT INTO devices (user_id, name, phone, status) VALUES (?, ?, ?, ?)').run(req.user.id, name.trim(), phone.trim(), 'connecting');
     const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(result.lastInsertRowid);
 
-    console.log(`[Peranti] Peranti baru ditambah: "${name}" (ID: ${device.id})`);
-    res.json({ success: true, data: device });
+    console.log(`[Peranti] Peranti baru ditambah: "${name}" (ID: ${device.id}, Kaedah: ${connectMethod})`);
+
+    // Mulakan sesi WhatsApp terus
+    await waManager.startSession(device.id, connectMethod, phone.trim());
+
+    res.json({ success: true, data: { ...device, method: connectMethod } });
   } catch (err) {
     console.error(`[Peranti] Ralat menambah peranti: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Sambung peranti (mulakan sesi WhatsApp)
+// Sambung semula peranti sedia ada
 router.post('/:id/connect', async (req, res) => {
   try {
     const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
     if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
 
-    await waManager.startSession(device.id);
+    const method = req.body.method || 'qr';
+    await waManager.startSession(device.id, method, device.phone);
 
-    console.log(`[Peranti] Sesi dimulakan untuk peranti #${device.id}`);
-    res.json({ success: true, data: { message: 'Menyambung... Sila imbas kod QR' } });
+    console.log(`[Peranti] Sesi dimulakan untuk peranti #${device.id} (kaedah: ${method})`);
+    res.json({ success: true, data: { message: 'Menyambung...', method } });
   } catch (err) {
     console.error(`[Peranti] Ralat memulakan sesi: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
@@ -63,15 +71,16 @@ router.get('/:id/qr', async (req, res) => {
     if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
 
     const qr = waManager.getQR(device.id);
+    const pairingCode = waManager.getPairingCode(device.id);
     const status = waManager.getStatus(device.id);
+    const error = waManager.getError(device.id);
 
+    let qrDataUrl = null;
     if (qr) {
-      const dataUrl = await QRCode.toDataURL(qr);
-      console.log(`[Peranti] Kod QR dijana untuk peranti #${device.id}`);
-      return res.json({ success: true, qr: dataUrl, status });
+      qrDataUrl = await QRCode.toDataURL(qr);
     }
 
-    res.json({ success: true, qr: null, status });
+    res.json({ success: true, qr: qrDataUrl, pairingCode, status, error });
   } catch (err) {
     console.error(`[Peranti] Ralat mendapatkan kod QR: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });

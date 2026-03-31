@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../auth');
 const autoReplyService = require('../whatsapp/autoReply');
-const db = require('../database');
+const { db } = require('../database');
 
 router.use(requireAuth);
 

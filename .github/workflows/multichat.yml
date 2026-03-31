@@ -32,11 +32,11 @@ jobs:
 
       - name: Clone data repo
         run: |
-          git clone https://x-access-token:${{ secrets.DATA_REPO_TOKEN }}@github.com/${{ secrets.DATA_REPO }}.git data
+          git clone https://x-access-token:${{ secrets.DATA_REPO_TOKEN }}@github.com/${{ secrets.DATA_REPO }}.git MULTIWSDATA
           # Create default directories if first run
-          mkdir -p data/auth data/uploads data/db
+          mkdir -p MULTIWSDATA/auth MULTIWSDATA/uploads MULTIWSDATA/db MULTIWSDATA/sessions
           # Copy database if exists
-          if [ -f data/db/multichat.db ]; then
+          if [ -f MULTIWSDATA/db/multichat.db ]; then
             echo "Pangkalan data sedia ada dijumpai"
           fi
 
@@ -48,7 +48,7 @@ jobs:
       - name: Start services
         env:
           CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
-          DATA_DIR: ./data
+          DATA_DIR: ./MULTIWSDATA
           PORT: 8080
           SESSION_SECRET: ${{ github.sha }}
         run: |
@@ -67,7 +67,7 @@ jobs:
           # Data sync loop - every 10 minutes
           while true; do
             sleep 600
-            cd data
+            cd MULTIWSDATA
             git add -A
             if git diff --cached --quiet; then
               echo "$(date): Tiada perubahan data"
@@ -86,7 +86,7 @@ jobs:
           echo "Mematikan perkhidmatan..."
           
           # Final data sync before shutdown
-          cd data
+          cd MULTIWSDATA
           git add -A
           if ! git diff --cached --quiet; then
             git commit -m "sync akhir: $(date '+%Y-%m-%d %H:%M:%S')"

@@ -6,7 +6,7 @@ const multer = require('multer');
 const { requireAuth } = require('../auth');
 const statusService = require('../whatsapp/status');
 const config = require('../config');
-const db = require('../database');
+const { db } = require('../database');
 
 // Pastikan direktori muat naik wujud
 const uploadsDir = path.join(config.DATA_DIR, 'uploads');
