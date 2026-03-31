@@ -1,4 +1,4 @@
-# Multichatsz
+# Multichat
 
 Platform automasi WhatsApp yang lengkap.
 
