@@ -4,113 +4,61 @@ const path = require('path');
 const config = require('./config');
 
 const DATA_DIR = config.DATA_DIR;
+let syncTimer = null;
+let isSyncing = false;
+let pendingSync = false;
 
 /**
- * Semak sama ada penyegerakan GitHub dikonfigurasikan
+ * Semak sama ada penyegerakan boleh dilakukan
+ * Cek jika DATA_DIR adalah repositori git (sudah diklon oleh workflow)
  */
 function isSyncEnabled() {
-  return !!(config.DATA_REPO && config.GH_TOKEN);
+  const gitDir = path.join(DATA_DIR, '.git');
+  return fs.existsSync(gitDir);
 }
 
 /**
- * Dapatkan URL repositori dengan token
- */
-function getRepoUrl() {
-  return `https://${config.GH_TOKEN}@github.com/${config.DATA_REPO}.git`;
-}
-
-/**
- * Inisialisasi penyegerakan data dengan repositori GitHub
- * - Jika DATA_REPO dan GH_TOKEN ditetapkan, cuba klon atau init repo
- * - Tarik data terkini dari repo
+ * Inisialisasi penyegerakan — pastikan git config betul
  */
 async function initSync() {
   if (!isSyncEnabled()) {
-    console.log('[Sync] Penyegerakan GitHub tidak dikonfigurasikan. Langkau.');
+    console.log('[Sync] Direktori data bukan repositori git. Penyegerakan dilumpuhkan.');
     return;
   }
 
-  console.log('[Sync] Memulakan penyegerakan dengan repositori:', config.DATA_REPO);
-
-  const git = simpleGit(DATA_DIR);
-  const gitDir = path.join(DATA_DIR, '.git');
-
   try {
-    const isRepo = fs.existsSync(gitDir);
+    const git = simpleGit(DATA_DIR);
 
-    if (!isRepo) {
-      console.log('[Sync] Direktori data bukan repositori git. Cuba klon...');
-
-      // Cuba klon repositori ke dalam direktori sementara kemudian pindahkan
-      const tempDir = path.join(process.cwd(), '.temp-clone');
-
-      try {
-        // Cuba klon ke direktori sementara
-        await simpleGit().clone(getRepoUrl(), tempDir);
-
-        // Pindahkan fail .git dari direktori sementara ke direktori data
-        const tempGitDir = path.join(tempDir, '.git');
-        if (fs.existsSync(tempGitDir)) {
-          fs.cpSync(tempGitDir, gitDir, { recursive: true });
-        }
-
-        // Bersihkan direktori sementara
-        fs.rmSync(tempDir, { recursive: true, force: true });
-
-        // Tarik data terkini
-        await git.pull('origin', 'main');
-        console.log('[Sync] Berjaya klon dan tarik data dari repositori.');
-      } catch (cloneErr) {
-        // Bersihkan jika klon gagal
-        if (fs.existsSync(tempDir)) {
-          fs.rmSync(tempDir, { recursive: true, force: true });
-        }
-
-        console.log('[Sync] Gagal klon repositori. Mula repositori baharu...');
-
-        // Init repositori baharu
-        await git.init();
-        await git.addRemote('origin', getRepoUrl());
-
-        // Cipta .gitignore
-        const gitignorePath = path.join(DATA_DIR, '.gitignore');
-        if (!fs.existsSync(gitignorePath)) {
-          fs.writeFileSync(gitignorePath, '*.db-journal\n*.db-wal\n*.db-shm\n');
-        }
-
-        // Commit awal
-        await git.add('.');
-        await git.commit('Permulaan repositori data Multichat');
-
-        try {
-          await git.push('origin', 'main', ['--set-upstream']);
-          console.log('[Sync] Repositori baharu dimulakan dan ditolak ke GitHub.');
-        } catch (pushErr) {
-          console.warn('[Sync] Amaran: Gagal tolak ke GitHub:', pushErr.message);
-        }
-      }
-    } else {
-      // Repo sudah wujud, tarik data terkini
-      try {
-        await git.pull('origin', 'main');
-        console.log('[Sync] Berjaya tarik data terkini dari repositori.');
-      } catch (pullErr) {
-        console.warn('[Sync] Amaran semasa tarik data:', pullErr.message);
-      }
+    // Pastikan git config ada
+    const email = await git.getConfig('user.email');
+    if (!email.value) {
+      await git.addConfig('user.email', 'multichat-bot@users.noreply.github.com');
+      await git.addConfig('user.name', 'Multichat Bot');
     }
+
+    // Pastikan .gitignore ada
+    const gitignorePath = path.join(DATA_DIR, '.gitignore');
+    if (!fs.existsSync(gitignorePath)) {
+      fs.writeFileSync(gitignorePath, '*.db-wal\n*.db-shm\n*.log\n');
+    }
+
+    console.log('[Sync] Penyegerakan dimulakan. Data akan disync setiap kali ada perubahan.');
   } catch (err) {
-    console.error('[Sync] Ralat semasa inisialisasi penyegerakan:', err.message);
+    console.error('[Sync] Ralat semasa inisialisasi:', err.message);
   }
 }
 
 /**
- * Tolak perubahan data ke repositori GitHub
- * @param {string} message - Mesej commit
+ * Laksanakan push sebenar ke GitHub
  */
-async function pushSync(message = 'Kemaskini data automatik') {
-  if (!isSyncEnabled()) {
+async function executePush(message = 'auto: kemaskini data') {
+  if (!isSyncEnabled()) return;
+  if (isSyncing) {
+    pendingSync = true;
     return;
   }
+
+  isSyncing = true;
 
   try {
     const git = simpleGit(DATA_DIR);
@@ -118,38 +66,61 @@ async function pushSync(message = 'Kemaskini data automatik') {
     // Tambah semua perubahan
     await git.add('.');
 
-    // Semak jika ada perubahan untuk di-commit
+    // Semak jika ada perubahan
     const status = await git.status();
     if (status.files.length === 0) {
-      console.log('[Sync] Tiada perubahan untuk ditolak.');
+      isSyncing = false;
       return;
     }
 
-    // Commit dan tolak
-    await git.commit(message);
+    // Commit dan push
+    const timestamp = new Date().toLocaleString('ms-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+    await git.commit(`${message} (${timestamp})`);
     await git.push('origin', 'main');
 
-    console.log(`[Sync] Berjaya tolak ${status.files.length} perubahan ke GitHub.`);
+    console.log(`[Sync] ✅ ${status.files.length} perubahan berjaya ditolak ke GitHub.`);
   } catch (err) {
-    console.error('[Sync] Ralat semasa tolak data:', err.message);
+    console.error('[Sync] ❌ Gagal sync:', err.message);
+  } finally {
+    isSyncing = false;
+
+    // Jika ada perubahan pending semasa sync, jalankan lagi
+    if (pendingSync) {
+      pendingSync = false;
+      setTimeout(() => executePush('auto: kemaskini tertunda'), 5000);
+    }
   }
 }
 
 /**
- * Tarik perubahan terkini dari repositori GitHub
+ * Trigger sync dengan debounce 15 saat
+ * Panggil fungsi ini setiap kali ada perubahan data
+ * Ia akan tunggu 15s selepas perubahan terakhir sebelum sync
+ * (supaya perubahan berturut-turut digabung dalam satu commit)
  */
-async function pullSync() {
-  if (!isSyncEnabled()) {
-    return;
+function triggerSync(message) {
+  if (!isSyncEnabled()) return;
+
+  // Reset timer — tunggu 15s dari perubahan terakhir
+  if (syncTimer) {
+    clearTimeout(syncTimer);
   }
 
-  try {
-    const git = simpleGit(DATA_DIR);
-    await git.pull('origin', 'main');
-    console.log('[Sync] Berjaya tarik data terkini dari GitHub.');
-  } catch (err) {
-    console.error('[Sync] Ralat semasa tarik data:', err.message);
-  }
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    executePush(message || 'auto: kemaskini data');
+  }, 15000); // 15 saat debounce
 }
 
-module.exports = { initSync, pushSync, pullSync };
+/**
+ * Sync segera tanpa debounce (untuk shutdown)
+ */
+async function syncNow(message) {
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+  await executePush(message || 'sync: sebelum tutup');
+}
+
+module.exports = { initSync, triggerSync, syncNow };

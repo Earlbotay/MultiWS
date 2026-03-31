@@ -169,7 +169,7 @@
                 const res = await fetch('/api/devices');
                 const data = await res.json();
                 const select = document.getElementById('blastDevice');
-                const devices = (data.devices || data || []).filter(d => d.status === 'connected');
+                const devices = (data.data || data.devices || []).filter(d => d.status === 'connected');
                 devices.forEach(d => {
                     const opt = document.createElement('option');
                     opt.value = d.id;
@@ -185,7 +185,7 @@
             try {
                 const res = await fetch('/api/blast');
                 const data = await res.json();
-                const jobs = data.jobs || data || [];
+                const jobs = data.data || data.jobs || [];
                 renderJobs(jobs);
 
                 const hasRunning = jobs.some(j => j.status === 'running');
@@ -286,7 +286,8 @@
             document.getElementById('jobDetailView').classList.remove('hidden');
             try {
                 const res = await fetch(`/api/blast/${id}`);
-                const job = await res.json();
+                const _raw = await res.json();
+                const job = _raw.data || _raw;
                 document.getElementById('detailName').textContent = job.name || '-';
                 document.getElementById('detailDevice').textContent = job.deviceId || job.device || '-';
                 document.getElementById('detailStatus').innerHTML = statusBadge(job.status);

@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth } = require('../auth');
 const autoReplyService = require('../whatsapp/autoReply');
 const { db } = require('../database');
+const { triggerSync } = require('../sync');
 
 router.use(requireAuth);
 
@@ -53,6 +54,7 @@ router.post('/', (req, res) => {
       matchType || 'contains'
     );
 
+    triggerSync('auto-reply: tambah peraturan');
     res.json({ success: true, data: rule });
   } catch (err) {
     console.log(`[AutoReply Route] Ralat mencipta peraturan: ${err.message}`);
@@ -78,6 +80,7 @@ router.put('/:id', (req, res) => {
       isActive !== undefined ? isActive : rule.is_active
     );
 
+    triggerSync('auto-reply: kemaskini peraturan');
     res.json({ success: true, data: updatedRule });
   } catch (err) {
     console.log(`[AutoReply Route] Ralat mengemaskini peraturan: ${err.message}`);
@@ -94,6 +97,7 @@ router.delete('/:id', (req, res) => {
     }
 
     autoReplyService.deleteRule(Number(req.params.id));
+    triggerSync('auto-reply: padam peraturan');
     res.json({ success: true, data: { message: 'Peraturan telah dipadam' } });
   } catch (err) {
     console.log(`[AutoReply Route] Ralat memadam peraturan: ${err.message}`);
@@ -110,6 +114,7 @@ router.post('/:id/toggle', (req, res) => {
     }
 
     const updatedRule = autoReplyService.toggleRule(Number(req.params.id));
+    triggerSync('auto-reply: tukar status peraturan');
     res.json({ success: true, data: updatedRule });
   } catch (err) {
     console.log(`[AutoReply Route] Ralat menukar status peraturan: ${err.message}`);

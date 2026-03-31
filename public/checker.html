@@ -125,7 +125,7 @@
                 const res = await fetch('/api/devices');
                 const data = await res.json();
                 const select = document.getElementById('checkerDevice');
-                const devices = (data.devices || data || []).filter(d => d.status === 'connected');
+                const devices = (data.data || data.devices || []).filter(d => d.status === 'connected');
                 devices.forEach(d => {
                     const opt = document.createElement('option');
                     opt.value = d.id;
@@ -158,8 +158,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ deviceId, phone })
                 });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.message || 'Gagal');
+                const _raw = await res.json();
+                if (!res.ok) throw new Error(_raw.error || _raw.message || 'Gagal');
+                const data = _raw.data || _raw;
 
                 const existing = results.findIndex(r => r.phone === phone);
                 const entry = { phone, exists: data.exists, jid: data.jid || '-' };
@@ -195,7 +196,7 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.message || 'Gagal');
 
-                const checkResults = data.results || data || [];
+                const checkResults = data.data || data.results || [];
                 checkResults.forEach(r => {
                     const existing = results.findIndex(x => x.phone === r.phone);
                     const entry = { phone: r.phone, exists: r.exists, jid: r.jid || '-' };

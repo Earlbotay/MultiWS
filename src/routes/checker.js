@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth } = require('../auth');
 const checkerService = require('../whatsapp/checker');
 const { db } = require('../database');
+const { triggerSync } = require('../sync');
 
 router.use(requireAuth);
 
@@ -21,6 +22,7 @@ router.post('/check', async (req, res) => {
     }
 
     const results = await checkerService.checkNumbers(deviceId, phones);
+    triggerSync('checker: keputusan semakan');
     res.json({ success: true, data: results });
   } catch (err) {
     console.log(`[Checker Route] Ralat menyemak nombor: ${err.message}`);
@@ -43,6 +45,7 @@ router.post('/check-single', async (req, res) => {
     }
 
     const result = await checkerService.checkSingle(deviceId, phone);
+    triggerSync('checker: keputusan semakan tunggal');
     res.json({ success: true, data: result });
   } catch (err) {
     console.log(`[Checker Route] Ralat menyemak nombor tunggal: ${err.message}`);

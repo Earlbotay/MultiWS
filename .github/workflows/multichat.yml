@@ -35,6 +35,23 @@ jobs:
           git clone https://x-access-token:${{ secrets.DATA_REPO_TOKEN }}@github.com/${{ secrets.DATA_REPO }}.git MULTIWSDATA
           # Create default directories if first run
           mkdir -p MULTIWSDATA/auth MULTIWSDATA/uploads MULTIWSDATA/db MULTIWSDATA/sessions
+          # Set git config for sync commits
+          cd MULTIWSDATA
+          git config user.email "multichat-bot@users.noreply.github.com"
+          git config user.name "Multichat Bot"
+          
+          # Tambah .gitignore untuk elak fail sementara
+          printf '*.db-wal\n*.db-shm\n*.log\n' > .gitignore
+          
+          # Initial commit jika repo kosong
+          if [ -z "$(git log --oneline 2>/dev/null)" ]; then
+            git add -A
+            git commit -m "init: struktur data awal" || true
+            git push origin main || git push origin HEAD:main
+            echo "Repo data dimulakan dengan commit pertama"
+          fi
+          cd ..
+          
           # Copy database if exists
           if [ -f MULTIWSDATA/db/multichat.db ]; then
             echo "Pangkalan data sedia ada dijumpai"
@@ -51,6 +68,8 @@ jobs:
           DATA_DIR: ./MULTIWSDATA
           PORT: 8080
           SESSION_SECRET: ${{ github.sha }}
+          ADMIN_USER: ${{ secrets.ADMIN_USER }}
+          ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
         run: |
           # Start Cloudflare Tunnel
           ./cloudflared tunnel run --token $CF_TUNNEL_TOKEN &
@@ -64,40 +83,26 @@ jobs:
           echo "PID Aplikasi: $APP_PID"
           echo "PID Tunnel: $CF_PID"
           
-          # Data sync loop - every 10 minutes
-          while true; do
-            sleep 600
-            cd MULTIWSDATA
-            git add -A
-            if git diff --cached --quiet; then
-              echo "$(date): Tiada perubahan data"
-            else
-              git commit -m "sync: $(date '+%Y-%m-%d %H:%M:%S')"
-              git push origin main || echo "Gagal push data"
-              echo "$(date): Data disinkronkan"
-            fi
-            cd ..
-          done &
-          SYNC_PID=$!
-          
-          # Wait for 4 hours 55 minutes (295 minutes), then graceful shutdown
+          # Data sync diurus oleh aplikasi (triggerSync setiap perubahan)
+          # Tunggu 4 jam 55 minit, kemudian graceful shutdown
           sleep 17700
           
           echo "Mematikan perkhidmatan..."
           
-          # Final data sync before shutdown
-          cd MULTIWSDATA
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "sync akhir: $(date '+%Y-%m-%d %H:%M:%S')"
-            git push origin main || echo "Gagal push data akhir"
-            echo "Sinkronisasi akhir selesai"
-          fi
-          cd ..
+          # Hantar SIGTERM supaya app sync data sebelum tutup
+          kill -SIGTERM $APP_PID 2>/dev/null
           
-          # Kill processes
-          kill $APP_PID 2>/dev/null
+          # Tunggu app selesai sync (max 30 saat)
+          for i in $(seq 1 30); do
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "Aplikasi telah ditutup dengan selamat"
+              break
+            fi
+            sleep 1
+          done
+          
+          # Paksa tutup jika masih hidup
+          kill -9 $APP_PID 2>/dev/null || true
           kill $CF_PID 2>/dev/null
-          kill $SYNC_PID 2>/dev/null
           
           echo "Multichat dimatikan. Akan dimulakan semula oleh jadual."

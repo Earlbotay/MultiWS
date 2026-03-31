@@ -66,9 +66,62 @@ app.get('*', (req, res) => {
 
 // Initialize auto-reply listener
 const autoReplyService = require('./whatsapp/autoReply');
+const { initSync, syncNow } = require('./sync');
 
 const PORT = config.PORT;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Multichat berjalan di port ${PORT}`);
   console.log(`Direktori data: ${config.DATA_DIR}`);
+
+  // Mulakan penyegerakan data
+  await initSync();
+
+  // Auto-reconnect peranti yang ada sesi tersimpan
+  try {
+    const fs = require('fs');
+    const waManager = require('./whatsapp/manager');
+    const devices = db.prepare('SELECT * FROM devices').all();
+
+    for (const device of devices) {
+      const authDir = path.join(config.SESSIONS_DIR, `device_${device.id}`);
+      const credsFile = path.join(authDir, 'creds.json');
+
+      if (fs.existsSync(credsFile)) {
+        console.log(`[Auto-Reconnect] Menyambung semula peranti #${device.id} (${device.name})...`);
+        try {
+          await waManager.startSession(device.id, 'qr', null);
+          console.log(`[Auto-Reconnect] Peranti #${device.id} berjaya dimulakan`);
+        } catch (err) {
+          console.error(`[Auto-Reconnect] Gagal menyambung peranti #${device.id}: ${err.message}`);
+          db.prepare('UPDATE devices SET status = ?, updated_at = datetime(\'now\') WHERE id = ?')
+            .run('disconnected', device.id);
+        }
+        // Delay 3s antara setiap reconnect untuk elak rate limit
+        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        // Takde credentials — set sebagai disconnected
+        db.prepare('UPDATE devices SET status = ?, updated_at = datetime(\'now\') WHERE id = ?')
+          .run('disconnected', device.id);
+      }
+    }
+
+    console.log('[Auto-Reconnect] Proses sambung semula selesai');
+  } catch (err) {
+    console.error('[Auto-Reconnect] Ralat:', err.message);
+  }
 });
+
+// Graceful shutdown — sync data sebelum tutup
+async function gracefulShutdown(signal) {
+  console.log(`\n[Shutdown] Menerima ${signal}. Menyimpan data...`);
+  try {
+    await syncNow('sync: penutupan server');
+    console.log('[Shutdown] Data berjaya disimpan. Selamat tinggal!');
+  } catch (err) {
+    console.error('[Shutdown] Gagal simpan data:', err.message);
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

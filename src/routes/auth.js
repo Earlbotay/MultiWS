@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { db } = require('../database');
 const config = require('../config');
+const { triggerSync } = require('../sync');
 
 // Tambah lajur role jika belum wujud
 try {
@@ -88,6 +89,7 @@ router.post('/change-password', (req, res) => {
     const hash = bcrypt.hashSync(newPassword, 10);
     db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, user.id);
 
+    triggerSync('auth: tukar kata laluan');
     console.log(`[Auth] Kata laluan pengguna '${user.username}' berjaya ditukar`);
     res.json({ success: true, data: 'Kata laluan berjaya ditukar' });
   } catch (err) {

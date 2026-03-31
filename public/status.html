@@ -167,7 +167,7 @@
             try {
                 const res = await fetch('/api/devices');
                 const data = await res.json();
-                const devices = (data.devices || data || []).filter(d => d.status === 'connected');
+                const devices = (data.data || data.devices || []).filter(d => d.status === 'connected');
                 document.querySelectorAll('.device-select').forEach(select => {
                     devices.forEach(d => {
                         const opt = document.createElement('option');

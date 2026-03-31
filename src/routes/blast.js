@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth } = require('../auth');
 const blastService = require('../whatsapp/blast');
 const { db } = require('../database');
+const { triggerSync } = require('../sync');
 
 router.use(requireAuth);
 
@@ -42,6 +43,7 @@ router.post('/', (req, res) => {
       phones
     );
 
+    triggerSync('blast: cipta kerja baru');
     res.json({ success: true, data: job });
   } catch (err) {
     console.log(`[Blast Route] Ralat mencipta blast: ${err.message}`);
@@ -62,6 +64,7 @@ router.post('/:id/start', async (req, res) => {
       console.log(`[Blast Route] Ralat menjalankan blast: ${err.message}`);
     });
 
+    triggerSync('blast: mula kerja');
     res.json({ success: true, data: { message: 'Kerja blast sedang dimulakan' } });
   } catch (err) {
     console.log(`[Blast Route] Ralat memulakan blast: ${err.message}`);
@@ -78,6 +81,7 @@ router.post('/:id/pause', (req, res) => {
     }
 
     blastService.pauseJob(Number(req.params.id));
+    triggerSync('blast: jeda kerja');
     res.json({ success: true, data: { message: 'Kerja blast telah dijeda' } });
   } catch (err) {
     console.log(`[Blast Route] Ralat menjeda blast: ${err.message}`);
@@ -94,6 +98,7 @@ router.post('/:id/cancel', (req, res) => {
     }
 
     blastService.cancelJob(Number(req.params.id));
+    triggerSync('blast: batal kerja');
     res.json({ success: true, data: { message: 'Kerja blast telah dibatalkan' } });
   } catch (err) {
     console.log(`[Blast Route] Ralat membatalkan blast: ${err.message}`);
@@ -125,6 +130,7 @@ router.delete('/:id', (req, res) => {
     }
 
     blastService.deleteJob(Number(req.params.id));
+    triggerSync('blast: padam kerja');
     res.json({ success: true, data: { message: 'Kerja blast telah dipadam' } });
   } catch (err) {
     console.log(`[Blast Route] Ralat memadam blast: ${err.message}`);

@@ -88,7 +88,7 @@
             try {
                 const res = await fetch('/api/devices');
                 const data = await res.json();
-                allDevices = (data.devices || data || []).filter(d => d.status === 'connected');
+                allDevices = (data.data || data.devices || []).filter(d => d.status === 'connected');
                 renderDeviceCheckboxes();
             } catch (e) {
                 console.error('Gagal memuatkan peranti:', e);
@@ -114,7 +114,7 @@
             try {
                 const res = await fetch('/api/warmer');
                 const data = await res.json();
-                const sessions = data.sessions || data || [];
+                const sessions = data.data || data.sessions || [];
                 renderSessions(sessions);
             } catch (e) {
                 document.getElementById('sessionsGrid').innerHTML = `<div class="col-span-full text-center py-12 text-red-400"><i class="fas fa-exclamation-circle mr-2"></i>Gagal memuatkan data</div>`;

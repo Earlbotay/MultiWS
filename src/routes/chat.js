@@ -3,6 +3,7 @@ const router = express.Router();
 const { db } = require('../database');
 const { requireAuth } = require('../auth');
 const waManager = require('../whatsapp/manager');
+const { triggerSync } = require('../sync');
 
 router.use(requireAuth);
 
@@ -101,6 +102,7 @@ router.post('/send/:deviceId', async (req, res) => {
 
     const result = await waManager.sendMessage(deviceId, jid, content);
 
+    triggerSync('chat: hantar mesej');
     console.log(`[Sembang] Mesej berjaya dihantar dari peranti #${deviceId} ke ${jid}`);
     res.json({ success: true, data: { messageId: result?.key?.id, to: jid, message } });
   } catch (err) {

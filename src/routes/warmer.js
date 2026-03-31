@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth } = require('../auth');
 const warmerService = require('../whatsapp/warmer');
 const { db } = require('../database');
+const { triggerSync } = require('../sync');
 
 router.use(requireAuth);
 
@@ -46,6 +47,7 @@ router.post('/', (req, res) => {
       intervalMax || 60
     );
 
+    triggerSync('warmer: cipta sesi baru');
     res.json({ success: true, data: session });
   } catch (err) {
     console.log(`[Warmer Route] Ralat mencipta warmer: ${err.message}`);
@@ -65,6 +67,7 @@ router.post('/:id/start', async (req, res) => {
       console.log(`[Warmer Route] Ralat menjalankan warmer: ${err.message}`);
     });
 
+    triggerSync('warmer: mula sesi');
     res.json({ success: true, data: { message: 'Warmer sedang dimulakan' } });
   } catch (err) {
     console.log(`[Warmer Route] Ralat memulakan warmer: ${err.message}`);
@@ -81,6 +84,7 @@ router.post('/:id/stop', (req, res) => {
     }
 
     warmerService.stopWarmer(Number(req.params.id));
+    triggerSync('warmer: henti sesi');
     res.json({ success: true, data: { message: 'Warmer telah dihentikan' } });
   } catch (err) {
     console.log(`[Warmer Route] Ralat menghentikan warmer: ${err.message}`);
@@ -112,6 +116,7 @@ router.delete('/:id', (req, res) => {
     }
 
     warmerService.deleteWarmer(Number(req.params.id));
+    triggerSync('warmer: padam sesi');
     res.json({ success: true, data: { message: 'Warmer telah dipadam' } });
   } catch (err) {
     console.log(`[Warmer Route] Ralat memadam warmer: ${err.message}`);

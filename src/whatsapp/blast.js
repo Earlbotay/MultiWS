@@ -1,5 +1,6 @@
 const { db } = require('../database');
 const waManager = require('./manager');
+const { triggerSync } = require('../sync');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -34,6 +35,7 @@ class BlastService {
     db.prepare('UPDATE blast_jobs SET total = ? WHERE id = ?').run(phones.length, blastId);
 
     const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ?').get(blastId);
+    triggerSync('blast: kerja baru dicipta');
     console.log(`[Blast] Kerja blast #${blastId} berjaya dicipta`);
     return job;
   }
@@ -50,6 +52,7 @@ class BlastService {
 
     console.log(`[Blast] Memulakan kerja blast #${blastId}`);
     db.prepare('UPDATE blast_jobs SET status = ? WHERE id = ?').run('running', blastId);
+    triggerSync('blast: mula menghantar');
 
     const jobState = { running: true, cancelled: false };
     this.activeJobs.set(blastId, jobState);
@@ -97,9 +100,11 @@ class BlastService {
       const currentJob = db.prepare('SELECT status FROM blast_jobs WHERE id = ?').get(blastId);
       if (currentJob && currentJob.status === 'running') {
         db.prepare('UPDATE blast_jobs SET status = ? WHERE id = ?').run('cancelled', blastId);
+        triggerSync('blast: kerja dibatalkan');
       }
     } else {
       db.prepare('UPDATE blast_jobs SET status = ? WHERE id = ?').run('completed', blastId);
+      triggerSync('blast: kerja selesai');
       console.log(`[Blast] Kerja blast #${blastId} telah selesai`);
     }
 
@@ -113,6 +118,7 @@ class BlastService {
       jobState.cancelled = true;
     }
     db.prepare('UPDATE blast_jobs SET status = ? WHERE id = ?').run('paused', blastId);
+    triggerSync('blast: kerja dijeda');
   }
 
   cancelJob(blastId) {
@@ -122,6 +128,7 @@ class BlastService {
       jobState.cancelled = true;
     }
     db.prepare('UPDATE blast_jobs SET status = ? WHERE id = ?').run('cancelled', blastId);
+    triggerSync('blast: kerja dibatalkan');
   }
 
   getJob(blastId) {
@@ -146,6 +153,7 @@ class BlastService {
 
     db.prepare('DELETE FROM blast_recipients WHERE blast_id = ?').run(blastId);
     db.prepare('DELETE FROM blast_jobs WHERE id = ?').run(blastId);
+    triggerSync('blast: kerja dipadam');
   }
 }
 

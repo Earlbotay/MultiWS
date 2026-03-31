@@ -1,5 +1,6 @@
 const { db } = require('../database');
 const waManager = require('./manager');
+const { triggerSync } = require('../sync');
 
 class WarmerService {
   constructor() {
@@ -32,6 +33,7 @@ class WarmerService {
     insertMany(deviceIds);
 
     const session = db.prepare('SELECT * FROM warmer_sessions WHERE id = ?').get(warmerId);
+    triggerSync('warmer: sesi baru dicipta');
     console.log(`[Warmer] Sesi warmer #${warmerId} berjaya dicipta`);
     return session;
   }
@@ -44,6 +46,7 @@ class WarmerService {
 
     console.log(`[Warmer] Memulakan warmer #${warmerId}`);
     db.prepare('UPDATE warmer_sessions SET status = ? WHERE id = ?').run('running', warmerId);
+    triggerSync('warmer: sesi dimulakan');
 
     const devices = db.prepare('SELECT * FROM warmer_devices WHERE warmer_id = ?').all(warmerId);
     const messages = JSON.parse(session.messages);
@@ -114,6 +117,7 @@ class WarmerService {
       this.activeWarmers.delete(warmerId);
     }
     db.prepare('UPDATE warmer_sessions SET status = ? WHERE id = ?').run('stopped', warmerId);
+    triggerSync('warmer: sesi dihentikan');
   }
 
   deleteWarmer(warmerId) {
@@ -121,6 +125,7 @@ class WarmerService {
     this.stopWarmer(warmerId);
     db.prepare('DELETE FROM warmer_devices WHERE warmer_id = ?').run(warmerId);
     db.prepare('DELETE FROM warmer_sessions WHERE id = ?').run(warmerId);
+    triggerSync('warmer: sesi dipadam');
   }
 
   getSession(warmerId) {

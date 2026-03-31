@@ -123,7 +123,7 @@
             try {
                 const res = await fetch('/api/devices');
                 const data = await res.json();
-                allDevices = (data.devices || data || []).filter(d => d.status === 'connected');
+                allDevices = (data.data || data.devices || []).filter(d => d.status === 'connected');
                 const filterSelect = document.getElementById('filterDevice');
                 const ruleSelect = document.getElementById('ruleDevice');
                 allDevices.forEach(d => {
@@ -149,7 +149,7 @@
                 if (deviceId) url += `?deviceId=${deviceId}`;
                 const res = await fetch(url);
                 const data = await res.json();
-                rules = data.rules || data || [];
+                rules = data.data || data.rules || [];
                 renderRules();
             } catch (e) {
                 document.getElementById('rulesBody').innerHTML = `<tr><td colspan="7" class="text-center py-8 text-red-400"><i class="fas fa-exclamation-circle mr-2"></i>Gagal memuatkan data</td></tr>`;

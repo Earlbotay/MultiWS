@@ -1,5 +1,6 @@
 const fs = require('fs');
 const waManager = require('./manager');
+const { triggerSync } = require('../sync');
 
 class StatusService {
   constructor() {
@@ -27,6 +28,7 @@ class StatusService {
     }
 
     const result = await socket.sendMessage('status@broadcast', content);
+    triggerSync('status: status teks dihantar');
     console.log(`[Status] Status teks berjaya dihantar untuk peranti ${deviceId}`);
     return result;
   }
@@ -54,6 +56,7 @@ class StatusService {
     }
 
     const result = await socket.sendMessage('status@broadcast', content);
+    triggerSync('status: status gambar dihantar');
     console.log(`[Status] Status gambar berjaya dihantar untuk peranti ${deviceId}`);
     return result;
   }
@@ -81,6 +84,7 @@ class StatusService {
     }
 
     const result = await socket.sendMessage('status@broadcast', content);
+    triggerSync('status: status video dihantar');
     console.log(`[Status] Status video berjaya dihantar untuk peranti ${deviceId}`);
     return result;
   }

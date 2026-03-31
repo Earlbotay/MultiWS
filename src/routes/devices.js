@@ -4,6 +4,7 @@ const QRCode = require('qrcode');
 const { db } = require('../database');
 const { requireAuth } = require('../auth');
 const waManager = require('../whatsapp/manager');
+const { triggerSync } = require('../sync');
 
 router.use(requireAuth);
 
@@ -40,6 +41,7 @@ router.post('/', async (req, res) => {
     // Mulakan sesi WhatsApp terus
     await waManager.startSession(device.id, connectMethod, phone.trim());
 
+    triggerSync('peranti: tambah baru');
     res.json({ success: true, data: { ...device, method: connectMethod } });
   } catch (err) {
     console.error(`[Peranti] Ralat menambah peranti: ${err.message}`);
@@ -56,6 +58,7 @@ router.post('/:id/connect', async (req, res) => {
     const method = req.body.method || 'qr';
     await waManager.startSession(device.id, method, device.phone);
 
+    triggerSync('peranti: sambung semula');
     console.log(`[Peranti] Sesi dimulakan untuk peranti #${device.id} (kaedah: ${method})`);
     res.json({ success: true, data: { message: 'Menyambung...', method } });
   } catch (err) {
@@ -108,6 +111,7 @@ router.post('/:id/disconnect', async (req, res) => {
 
     await waManager.stopSession(device.id);
 
+    triggerSync('peranti: putus sambungan');
     console.log(`[Peranti] Peranti #${device.id} telah diputuskan sambungan`);
     res.json({ success: true, data: { message: 'Peranti diputuskan' } });
   } catch (err) {
@@ -124,6 +128,7 @@ router.delete('/:id', async (req, res) => {
 
     await waManager.deleteSession(device.id);
 
+    triggerSync('peranti: padam');
     console.log(`[Peranti] Peranti #${device.id} dan semua data berkaitan telah dipadam`);
     res.json({ success: true, data: { message: 'Peranti dipadam' } });
   } catch (err) {

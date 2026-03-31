@@ -119,7 +119,7 @@
     async function loadDevices() {
       try {
         const data = await api.get('/api/devices');
-        devices = (data.devices || data || []).filter(d => d.status === 'connected');
+        devices = (data.data || data.devices || []).filter(d => d.status === 'connected');
         const select = document.getElementById('deviceSelect');
         const current = select.value;
         select.innerHTML = '<option value="">-- Pilih Peranti --</option>' +
@@ -131,7 +131,7 @@
       if (!currentDeviceId) return;
       try {
         const data = await api.get(`/api/chat/conversations/${currentDeviceId}`);
-        conversations = data.conversations || data || [];
+        conversations = data.data || data.conversations || [];
         renderConversations();
       } catch (err) {
         document.getElementById('chatList').innerHTML = `
@@ -223,7 +223,7 @@
       if (!currentDeviceId || !currentConversation) return;
       try {
         const data = await api.get(`/api/chat/messages/${currentDeviceId}/${encodeURIComponent(currentConversation)}`);
-        const messages = data.messages || data || [];
+        const messages = data.data || data.messages || [];
         renderMessages(messages);
       } catch (err) {
         document.getElementById('chatMessages').innerHTML = `

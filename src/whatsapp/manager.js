@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const config = require('../config');
 const { db } = require('../database');
+const { triggerSync } = require('../sync');
 
 class WAManager {
   constructor() {
@@ -120,6 +121,7 @@ class WAManager {
 
           db.prepare('UPDATE devices SET status = ?, phone = ?, updated_at = datetime(\'now\') WHERE id = ?')
             .run('connected', phone, deviceId);
+          triggerSync('peranti: berjaya disambung');
         }
 
         if (connection === 'close') {
@@ -136,6 +138,7 @@ class WAManager {
             }
             db.prepare('UPDATE devices SET status = ?, updated_at = datetime(\'now\') WHERE id = ?')
               .run('disconnected', deviceId);
+            triggerSync('peranti: log keluar');
             session.status = 'disconnected';
             session.qr = null;
             session.pairingCode = null;
@@ -151,6 +154,7 @@ class WAManager {
             console.log(`[WAManager] Peranti #${deviceId} gagal disambung semula selepas ${session.retryCount} percubaan`);
             db.prepare('UPDATE devices SET status = ?, updated_at = datetime(\'now\') WHERE id = ?')
               .run('disconnected', deviceId);
+            triggerSync('peranti: gagal sambung semula');
             session.status = 'disconnected';
             this.sessions.delete(deviceId);
           }
@@ -212,6 +216,7 @@ class WAManager {
               timestamp
             );
 
+            triggerSync('chat: mesej masuk');
             console.log(`[WAManager] Mesej baru diterima untuk peranti #${deviceId} dari ${sender}`);
 
             for (const handler of this.messageHandlers) {
@@ -249,6 +254,7 @@ class WAManager {
       db.prepare('UPDATE devices SET status = ?, updated_at = datetime(\'now\') WHERE id = ?')
         .run('disconnected', deviceId);
 
+      triggerSync('peranti: sesi dihentikan');
       console.log(`[WAManager] Sesi peranti #${deviceId} telah dihentikan`);
     } catch (err) {
       console.error(`[WAManager] Ralat menghentikan sesi peranti #${deviceId}: ${err.message}`);
@@ -274,6 +280,7 @@ class WAManager {
       db.prepare('DELETE FROM messages WHERE device_id = ?').run(deviceId);
       db.prepare('DELETE FROM devices WHERE id = ?').run(deviceId);
 
+      triggerSync('peranti: padam sesi dan data');
       console.log(`[WAManager] Peranti #${deviceId} dan semua data berkaitan telah dipadam`);
     } catch (err) {
       console.error(`[WAManager] Ralat memadam peranti #${deviceId}: ${err.message}`);
@@ -347,6 +354,7 @@ class WAManager {
         Math.floor(Date.now() / 1000)
       );
 
+      triggerSync('chat: mesej dihantar');
       console.log(`[WAManager] Mesej berjaya dihantar dari peranti #${deviceId} ke ${jid}`);
       return result;
     } catch (err) {

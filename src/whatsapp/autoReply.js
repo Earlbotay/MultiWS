@@ -1,5 +1,6 @@
 const { db } = require('../database');
 const waManager = require('./manager');
+const { triggerSync } = require('../sync');
 
 class AutoReplyService {
   constructor() {
@@ -72,6 +73,7 @@ class AutoReplyService {
     `).run(userId, deviceId, triggerWord, replyMessage, matchType || 'contains');
 
     const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(result.lastInsertRowid);
+    triggerSync('auto-reply: peraturan baru dicipta');
     console.log(`[AutoReply] Peraturan #${rule.id} berjaya dicipta`);
     return rule;
   }
@@ -85,12 +87,14 @@ class AutoReplyService {
       WHERE id = ?
     `).run(triggerWord, replyMessage, matchType, isActive ? 1 : 0, ruleId);
 
+    triggerSync('auto-reply: peraturan dikemaskini');
     return db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(ruleId);
   }
 
   deleteRule(ruleId) {
     console.log(`[AutoReply] Memadam peraturan #${ruleId}`);
     db.prepare('DELETE FROM auto_replies WHERE id = ?').run(ruleId);
+    triggerSync('auto-reply: peraturan dipadam');
   }
 
   getRules(userId, deviceId) {
@@ -118,6 +122,7 @@ class AutoReplyService {
     const newStatus = rule.is_active ? 0 : 1;
     db.prepare('UPDATE auto_replies SET is_active = ? WHERE id = ?').run(newStatus, ruleId);
 
+    triggerSync('auto-reply: tukar status peraturan');
     console.log(`[AutoReply] Peraturan #${ruleId} kini ${newStatus ? 'aktif' : 'tidak aktif'}`);
     return db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(ruleId);
   }

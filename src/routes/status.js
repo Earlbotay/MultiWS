@@ -7,6 +7,7 @@ const { requireAuth } = require('../auth');
 const statusService = require('../whatsapp/status');
 const config = require('../config');
 const { db } = require('../database');
+const { triggerSync } = require('../sync');
 
 // Pastikan direktori muat naik wujud
 const uploadsDir = path.join(config.DATA_DIR, 'uploads');
@@ -51,6 +52,7 @@ router.post('/text', async (req, res) => {
     }
 
     const result = await statusService.postTextStatus(deviceId, text, backgroundColor, font);
+    triggerSync('status: hantar status teks');
     res.json({ success: true, data: result });
   } catch (err) {
     console.log(`[Status Route] Ralat menghantar status teks: ${err.message}`);
@@ -73,6 +75,7 @@ router.post('/image', upload.single('file'), async (req, res) => {
     }
 
     const result = await statusService.postImageStatus(deviceId, req.file.path, caption);
+    triggerSync('status: hantar status gambar');
     res.json({ success: true, data: result });
   } catch (err) {
     console.log(`[Status Route] Ralat menghantar status gambar: ${err.message}`);
@@ -95,6 +98,7 @@ router.post('/video', upload.single('file'), async (req, res) => {
     }
 
     const result = await statusService.postVideoStatus(deviceId, req.file.path, caption);
+    triggerSync('status: hantar status video');
     res.json({ success: true, data: result });
   } catch (err) {
     console.log(`[Status Route] Ralat menghantar status video: ${err.message}`);
