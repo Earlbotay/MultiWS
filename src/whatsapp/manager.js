@@ -57,7 +57,11 @@ class WAManager {
           keys: makeCacheableSignalKeyStore(state.keys, this.logger)
         },
         printQRInTerminal: false,
-        browser: ['Multichat', 'Chrome', '4.0.0'],
+        browser: ['Windows', 'Edge', '110.0.0'],
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        qrTimeout: 40000,
+        keepAliveIntervalMs: 25000,
         logger: this.logger,
         version
       });
