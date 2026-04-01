@@ -104,7 +104,7 @@
           document.getElementById('deviceList').innerHTML = `
             <div class="device-grid">
               ${devices.map(d => `
-                <div class="device-card ${d.status}">
+                <div class="device-card ${d.status}" data-device-id="${d.id}">
                   <div class="device-header">
                     <div>
                       <div class="device-name">${escapeHtml(d.name)}</div>
@@ -120,8 +120,29 @@
         document.getElementById('deviceList').innerHTML = '<p class="text-center text-muted">Gagal memuatkan peranti</p>';
       }
 
-      // SSE updates
+      // SSE — kemas kini di tempat, bukan muat semula penuh
       onSSE('device-status', (data) => {
+        // Kemas kini statistik secara senyap
+        api('/api/stats').then(res => {
+          const s = res.data;
+          document.getElementById('totalDevices').textContent = s.totalDevices || 0;
+          document.getElementById('activeDevices').textContent = s.activeDevices || 0;
+          document.getElementById('totalMessages').textContent = s.totalMessages || 0;
+          document.getElementById('activeAutoReplies').textContent = s.activeAutoReplies || 0;
+          document.getElementById('runningBlasts').textContent = s.runningBlasts || 0;
+        }).catch(() => {});
+
+        // Kemas kini kad peranti khusus di dashboard
+        const card = document.querySelector(`#deviceList .device-card[data-device-id="${data.deviceId}"]`);
+        if (card) {
+          card.className = `device-card ${data.status}`;
+          const badge = card.querySelector('.badge');
+          if (badge) {
+            badge.className = `badge badge-${data.status === 'connected' ? 'success' : data.status === 'connecting' ? 'warning' : 'danger'}`;
+            badge.textContent = data.status;
+          }
+        }
+
         showToast(`Peranti #${data.deviceId}: ${data.status}`, data.status === 'connected' ? 'success' : 'warning');
       });
     })();

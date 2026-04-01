@@ -315,7 +315,7 @@
             <table>
               <thead><tr><th>Peranti</th><th>Pemilik</th><th>Nombor</th><th>Status</th><th>Dicipta</th></tr></thead>
               <tbody>${devices.map(d => `
-                <tr>
+                <tr data-device-id="${d.id}">
                   <td><strong>${escapeHtml(d.name)}</strong></td>
                   <td>${escapeHtml(d.owner_username)}</td>
                   <td class="text-muted">${d.phone ? formatPhone(d.phone) : '-'}</td>
@@ -341,9 +341,23 @@
       }
       await Promise.all([loadAdminStats(), loadUsers()]);
 
-      onSSE('device-status', () => {
+      // SSE — kemas kini statistik sahaja (debounce untuk elak flood)
+      const debouncedAdminUpdate = debounce(() => {
         loadAdminStats();
-        loadAllDevices();
+      }, 2000);
+
+      onSSE('device-status', (data) => {
+        debouncedAdminUpdate();
+
+        // Kemas kini baris peranti jika tab peranti aktif
+        const row = document.querySelector(`#allDevicesList tr[data-device-id="${data.deviceId}"]`);
+        if (row) {
+          const badge = row.querySelector('.badge');
+          if (badge) {
+            badge.className = `badge badge-${data.status === 'connected' ? 'success' : data.status === 'connecting' ? 'warning' : 'danger'}`;
+            badge.textContent = data.status;
+          }
+        }
       });
     })();
   </script>

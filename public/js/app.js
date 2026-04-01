@@ -54,6 +54,15 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
+// ===== DEBOUNCE =====
+function debounce(fn, ms = 1000) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 // ===== API HELPER =====
 async function api(url, options = {}) {
   try {

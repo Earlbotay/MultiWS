@@ -81,7 +81,7 @@
               <table>
                 <thead><tr><th>Peranti</th><th>Nombor</th><th>Status</th></tr></thead>
                 <tbody>${devices.map(d => `
-                  <tr>
+                  <tr data-device-id="${d.id}">
                     <td><strong>${escapeHtml(d.name)}</strong></td>
                     <td class="text-muted">${d.phone ? formatPhone(d.phone) : '-'}</td>
                     <td><span class="badge badge-${d.status === 'connected' ? 'success' : d.status === 'connecting' ? 'warning' : 'danger'}">${d.status}</span></td>
@@ -99,7 +99,25 @@
       if (!await initPage('status')) return;
       await loadStatus();
 
-      onSSE('device-status', () => loadStatus());
+      // SSE — kemas kini di tempat sahaja
+      onSSE('device-status', (data) => {
+        // Kemas kini kaunter peranti aktif
+        api('/api/devices').then(res => {
+          const devices = res.data || [];
+          const connected = devices.filter(d => d.status === 'connected').length;
+          document.getElementById('deviceStatus').textContent = `${connected}/${devices.length}`;
+        }).catch(() => {});
+
+        // Kemas kini baris tertentu dalam jadual
+        const row = document.querySelector(`#deviceStatusList tr[data-device-id="${data.deviceId}"]`);
+        if (row) {
+          const badge = row.querySelector('.badge');
+          if (badge) {
+            badge.className = `badge badge-${data.status === 'connected' ? 'success' : data.status === 'connecting' ? 'warning' : 'danger'}`;
+            badge.textContent = data.status;
+          }
+        }
+      });
     })();
   </script>
 </body>

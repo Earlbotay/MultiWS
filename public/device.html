@@ -291,8 +291,58 @@
       await loadDevices();
 
       onSSE('device-status', (data) => {
+        const card = document.getElementById(`device-${data.deviceId}`);
+
+        // Peranti baru yang belum di halaman — muat sekali
+        if (!card) { loadDevices(); return; }
+
+        // Jika dipadam, buang kad
+        if (data.status === 'deleted') {
+          card.remove();
+          const grid = document.getElementById('deviceGrid');
+          if (!grid.querySelector('.device-card')) {
+            grid.innerHTML = `
+              <div class="empty-state" style="grid-column:1/-1;">
+                <div class="empty-state-icon">📱</div>
+                <div class="empty-state-title">Tiada peranti lagi</div>
+                <p class="text-muted">Klik "Tambah Peranti" untuk bermula.</p>
+              </div>`;
+          }
+          showToast(`Peranti dipadam`, 'info');
+          return;
+        }
+
+        // Kemas kini kelas kad
+        card.className = `device-card ${data.status}`;
+
+        // Kemas kini badge status
+        const badge = card.querySelector('.badge');
+        if (badge) {
+          badge.className = `badge badge-${data.status === 'connected' ? 'success' : data.status === 'connecting' ? 'warning' : 'danger'}`;
+          badge.textContent = data.status;
+        }
+
+        // Kemas kini nombor telefon jika ada
+        if (data.phone) {
+          const phoneEl = card.querySelector('.device-phone');
+          if (phoneEl) phoneEl.textContent = formatPhone(data.phone);
+        }
+
+        // Kemas kini butang tindakan
+        const actions = card.querySelector('.device-actions');
+        if (actions) {
+          const name = card.querySelector('.device-name')?.textContent || '';
+          const id = data.deviceId;
+          actions.innerHTML = `
+            ${data.status === 'connected'
+              ? `<button class="btn btn-warning btn-sm" onclick="disconnectDevice(${id})">⏏ Putus</button>
+                 <button class="btn btn-outline btn-sm" onclick="downloadSession(${id}, '${escapeHtml(name)}')" title="Muat turun sesi">⬇️</button>`
+              : `<button class="btn btn-success btn-sm" onclick="reconnectDevice(${id})">🔌 Sambung</button>`}
+            <button class="btn btn-danger btn-sm" onclick="deleteDevice(${id}, '${escapeHtml(name)}')">🗑 Padam</button>
+          `;
+        }
+
         showToast(`Peranti #${data.deviceId}: ${data.status}`, data.status === 'connected' ? 'success' : 'warning');
-        loadDevices();
       });
     })();
   </script>
