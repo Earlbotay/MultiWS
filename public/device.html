@@ -3,435 +3,298 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Pengurusan Peranti</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <title>Multichat - Peranti</title>
   <link rel="stylesheet" href="/css/style.css">
-  <style>
-    .method-selector { display: flex; gap: 12px; margin-top: 4px; }
-    .method-option { flex: 1; position: relative; }
-    .method-option input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
-    .method-option label {
-      display: flex; flex-direction: column; align-items: center; gap: 6px;
-      padding: 16px 12px; border: 2px solid #e2e8f0; border-radius: 12px;
-      cursor: pointer; transition: all 0.2s; text-align: center; font-size: 13px;
-    }
-    .method-option label i { font-size: 24px; color: #94a3b8; transition: color 0.2s; }
-    .method-option input[type="radio"]:checked + label {
-      border-color: #25D366; background: #f0fdf4;
-    }
-    .method-option input[type="radio"]:checked + label i { color: #25D366; }
-    .method-option label:hover { border-color: #cbd5e1; }
-
-    .connect-status {
-      text-align: center; padding: 24px 16px;
-    }
-    .connect-status .spinner-lg {
-      width: 40px; height: 40px; border: 4px solid #e2e8f0;
-      border-top-color: #25D366; border-radius: 50%;
-      animation: spin 0.8s linear infinite; margin: 0 auto 16px;
-    }
-    .pairing-code-display {
-      font-size: 32px; font-weight: 700; letter-spacing: 6px;
-      color: #25D366; padding: 16px; background: #f0fdf4;
-      border-radius: 12px; margin: 12px 0; font-family: monospace;
-    }
-    .qr-display img {
-      max-width: 250px; margin: 0 auto; display: block; border-radius: 8px;
-    }
-    .connect-success {
-      color: #25D366; font-size: 48px; margin-bottom: 12px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
 </head>
 <body>
-
-  <div class="content">
-    <div class="content-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main-content">
+    <div class="page-header">
       <div>
-        <h1>Pengurusan Peranti</h1>
-        <p>Sambung dan urus peranti WhatsApp anda</p>
+        <h1 class="page-title">📱 Peranti</h1>
+        <p class="page-subtitle">Urus peranti WhatsApp anda</p>
       </div>
-      <button class="btn btn-primary" onclick="openAddModal()">
-        <i class="fas fa-plus"></i> Tambah Peranti
-      </button>
+      <button class="btn btn-primary" onclick="showModal('addDeviceModal')">+ Tambah Peranti</button>
     </div>
 
-    <!-- Device Grid -->
     <div class="device-grid" id="deviceGrid">
-      <div class="loading-overlay">
-        <div class="spinner"></div>
-        <span>Memuatkan peranti...</span>
+      <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
+    </div>
+  </div>
+
+  <!-- Add Device Modal -->
+  <div class="modal-overlay" id="addDeviceModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">➕ Tambah Peranti Baru</h3>
+        <button class="modal-close" onclick="hideModal('addDeviceModal')">✕</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Nama Peranti</label>
+        <input type="text" class="form-input" id="deviceName" placeholder="cth: Bisnes Utama">
+      </div>
+
+      <label class="form-label">Kaedah Sambungan</label>
+      <div class="method-toggle">
+        <button type="button" class="method-btn active" data-method="qr" onclick="setMethod('qr')">📷 Imbas QR</button>
+        <button type="button" class="method-btn" data-method="pairing" onclick="setMethod('pairing')">🔢 Kod Pairing</button>
+      </div>
+
+      <div id="pairingFields" class="hidden">
+        <div class="form-group">
+          <label class="form-label">Nombor Telefon</label>
+          <input type="text" class="form-input" id="devicePhone" placeholder="cth: 60123456789">
+          <p class="text-sm text-muted mt-2">Format tanpa + atau ruang. Contoh: 60123456789</p>
+        </div>
+      </div>
+
+      <p class="text-sm text-muted" id="methodHint">Imbas kod QR dari WhatsApp anda. Nombor akan disahkan secara automatik.</p>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="hideModal('addDeviceModal')">Batal</button>
+        <button class="btn btn-primary" id="addDeviceBtn" onclick="addDevice()">Tambah Peranti</button>
       </div>
     </div>
   </div>
 
-  <!-- Add Device Modal (Multi-step) -->
-  <div class="modal-overlay" id="addDeviceModal">
-    <div class="modal" style="max-width: 440px;">
+  <!-- QR/Pairing Modal -->
+  <div class="modal-overlay" id="qrModal">
+    <div class="modal">
       <div class="modal-header">
-        <h3 id="modalTitle">Tambah Peranti Baru</h3>
-        <button class="modal-close" onclick="closeAddModal()">&times;</button>
+        <h3 class="modal-title" id="qrModalTitle">Menunggu Sambungan...</h3>
+        <button class="modal-close" onclick="stopQRPolling(); hideModal('qrModal')">✕</button>
       </div>
-      <div class="modal-body">
-        <!-- Step 1: Form -->
-        <div id="stepForm">
-          <form id="addDeviceForm" onsubmit="event.preventDefault(); processDevice();">
-            <div class="form-group">
-              <label for="deviceName">Nama Peranti</label>
-              <input type="text" id="deviceName" class="form-control" placeholder="cth: Telefon Utama" required>
-            </div>
-            <div class="form-group">
-              <label for="devicePhone">Nombor Telefon</label>
-              <input type="text" id="devicePhone" class="form-control" placeholder="cth: 60123456789" required>
-              <small style="color:#94a3b8; font-size:12px;">Masukkan dengan kod negara tanpa + (cth: 60 untuk Malaysia)</small>
-            </div>
-            <div class="form-group">
-              <label>Kaedah Sambungan</label>
-              <div class="method-selector">
-                <div class="method-option">
-                  <input type="radio" name="connectMethod" id="methodQR" value="qr" checked>
-                  <label for="methodQR">
-                    <i class="fas fa-qrcode"></i>
-                    <strong>Kod QR</strong>
-                    <span>Imbas dengan telefon</span>
-                  </label>
-                </div>
-                <div class="method-option">
-                  <input type="radio" name="connectMethod" id="methodPairing" value="pairing">
-                  <label for="methodPairing">
-                    <i class="fas fa-link"></i>
-                    <strong>Pairing Code</strong>
-                    <span>Masukkan kod 8 digit</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        <!-- Step 2: Connecting -->
-        <div id="stepConnecting" style="display:none;">
-          <div class="connect-status">
-            <div class="spinner-lg"></div>
-            <p id="connectMessage" style="color:#64748b; font-size:14px;">Menyambung ke WhatsApp...</p>
-
-            <!-- QR akan dipapar di sini -->
-            <div id="qrArea" style="display:none; margin-top:16px;">
-              <div class="qr-display" id="qrDisplay"></div>
-              <p style="font-size:12px; color:#94a3b8; margin-top:12px;">
-                Buka WhatsApp → Peranti Dipautkan → Pautkan Peranti → Imbas kod QR ini
-              </p>
-            </div>
-
-            <!-- Pairing Code akan dipapar di sini -->
-            <div id="pairingArea" style="display:none; margin-top:16px;">
-              <p style="font-size:13px; color:#64748b; margin-bottom:8px;">Masukkan kod ini di telefon anda:</p>
-              <div class="pairing-code-display" id="pairingCodeDisplay">--------</div>
-              <p style="font-size:12px; color:#94a3b8; margin-top:12px;">
-                Buka WhatsApp → Peranti Dipautkan → Pautkan Peranti → Paut dengan nombor telefon → Masukkan kod
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Step 3: Success -->
-        <div id="stepSuccess" style="display:none;">
-          <div class="connect-status">
-            <div class="connect-success">
-              <i class="fas fa-circle-check"></i>
-            </div>
-            <h3 style="margin-bottom:8px; color:#1e293b;">Berjaya Disambungkan!</h3>
-            <p style="color:#64748b; font-size:14px;" id="successMessage">Peranti anda kini bersambung dan sedia digunakan.</p>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer" id="modalFooter">
-        <button class="btn btn-secondary" onclick="closeAddModal()">Batal</button>
-        <button class="btn btn-primary" id="processBtn" onclick="processDevice()">
-          <i class="fas fa-play"></i> Proses
-        </button>
+      <div id="qrContent">
+        <div class="loading-overlay"><div class="spinner"></div><span>Menjanakan kod QR...</span></div>
       </div>
     </div>
   </div>
 
   <script src="/js/app.js"></script>
   <script>
-    let devices = [];
-    let pollTimer = null;
-    let statusPollTimer = null;
-    let currentDeviceId = null;
+    let currentMethod = 'qr';
+    let qrPollingId = null;
 
-    document.addEventListener('DOMContentLoaded', () => {
-      loadDevices();
-      statusPollTimer = setInterval(loadDevices, 10000);
-    });
+    function setMethod(method) {
+      currentMethod = method;
+      document.querySelectorAll('.method-btn').forEach(b => b.classList.toggle('active', b.dataset.method === method));
+      document.getElementById('pairingFields').classList.toggle('hidden', method === 'qr');
+      document.getElementById('methodHint').textContent = method === 'qr'
+        ? 'Imbas kod QR dari WhatsApp anda. Nombor akan disahkan secara automatik.'
+        : 'Masukkan nombor telefon untuk mendapatkan kod pairing.';
+    }
 
     async function loadDevices() {
       try {
-        const res = await api.get('/api/devices');
-        devices = res.data || res || [];
-        if (!Array.isArray(devices)) devices = [];
-        renderDevices();
-      } catch (err) {
-        document.getElementById('deviceGrid').innerHTML = `
-          <div class="empty-state" style="grid-column: 1/-1;">
-            <i class="fas fa-exclamation-triangle"></i>
-            <h3>Ralat memuatkan peranti</h3>
-            <p>${escapeHtml(err.message)}</p>
-          </div>`;
-      }
-    }
+        const res = await api('/api/devices');
+        const devices = res.data || [];
+        const grid = document.getElementById('deviceGrid');
 
-    function renderDevices() {
-      const grid = document.getElementById('deviceGrid');
+        if (devices.length === 0) {
+          grid.innerHTML = `
+            <div class="empty-state" style="grid-column: 1/-1;">
+              <div class="empty-state-icon">📱</div>
+              <div class="empty-state-title">Tiada peranti lagi</div>
+              <p class="text-muted">Klik "Tambah Peranti" untuk bermula.</p>
+            </div>`;
+          return;
+        }
 
-      if (devices.length === 0) {
-        grid.innerHTML = `
-          <div class="empty-state" style="grid-column: 1/-1;">
-            <i class="fas fa-mobile-screen-button"></i>
-            <h3>Tiada peranti</h3>
-            <p>Klik "Tambah Peranti" untuk menambah peranti WhatsApp pertama anda</p>
-          </div>`;
-        return;
-      }
-
-      grid.innerHTML = devices.map(d => {
-        const statusClass = d.status === 'connected' ? 'connected' : d.status === 'waiting_qr' || d.status === 'waiting_pairing' || d.status === 'connecting' ? 'waiting' : 'disconnected';
-        const statusText = d.status === 'connected' ? 'Bersambung' :
-          d.status === 'waiting_qr' ? 'Menunggu QR' :
-          d.status === 'waiting_pairing' ? 'Menunggu Pairing' :
-          d.status === 'connecting' || d.status === 'reconnecting' ? 'Menyambung...' : 'Terputus';
-        const phone = d.phone ? formatPhone(d.phone) : 'Belum didaftarkan';
-
-        return `
-        <div class="device-card" id="device-${d.id}">
-          <div class="device-card-header">
-            <div class="device-card-info">
-              <div class="device-card-icon">
-                <i class="fas fa-mobile-screen-button"></i>
-              </div>
+        grid.innerHTML = devices.map(d => `
+          <div class="device-card ${d.status}" id="device-${d.id}">
+            <div class="device-header">
               <div>
-                <div class="device-card-name">${escapeHtml(d.name)}</div>
-                <div class="device-card-phone">${phone}</div>
+                <div class="device-name">${escapeHtml(d.name)}</div>
+                <div class="device-phone">${d.phone ? formatPhone(d.phone) : '📷 QR Sahaja'}</div>
               </div>
+              <span class="badge badge-${d.status === 'connected' ? 'success' : d.status === 'connecting' ? 'warning' : 'danger'}">${d.status}</span>
             </div>
-            <span class="badge badge-${statusClass}">${statusText}</span>
+            <div class="text-sm text-muted">Ditambah: ${formatDate(d.created_at)}</div>
+            <div class="device-actions">
+              ${d.status === 'connected'
+                ? `<button class="btn btn-warning btn-sm" onclick="disconnectDevice(${d.id})">⏏ Putus</button>
+                   <button class="btn btn-outline btn-sm" onclick="downloadSession(${d.id}, '${escapeHtml(d.name)}')" title="Muat turun sesi">⬇️</button>`
+                : `<button class="btn btn-success btn-sm" onclick="reconnectDevice(${d.id})">🔌 Sambung</button>`}
+              <button class="btn btn-danger btn-sm" onclick="deleteDevice(${d.id}, '${escapeHtml(d.name)}')">🗑 Padam</button>
+            </div>
           </div>
-
-          <div class="device-card-body">
-            ${d.status === 'connected' ? `
-              <div style="display:flex; align-items:center; gap:8px; color:#25D366; font-size:14px;">
-                <i class="fas fa-circle-check"></i>
-                <span>Peranti bersambung dan sedia digunakan</span>
-              </div>
-            ` : `
-              <div style="display:flex; align-items:center; gap:8px; color:#aaa; font-size:14px;">
-                <i class="fas fa-circle-xmark"></i>
-                <span>Peranti tidak bersambung</span>
-              </div>
-            `}
-          </div>
-
-          <div class="device-card-actions">
-            ${d.status === 'connected' ? `
-              <button class="btn btn-sm btn-secondary" onclick="disconnectDevice('${d.id}')">
-                <i class="fas fa-link-slash"></i> Putus Sambungan
-              </button>
-            ` : `
-              <button class="btn btn-sm btn-primary" onclick="reconnectDevice('${d.id}')">
-                <i class="fas fa-link"></i> Sambung Semula
-              </button>
-            `}
-            <button class="btn btn-sm btn-danger" onclick="deleteDevice('${d.id}', '${escapeHtml(d.name)}')">
-              <i class="fas fa-trash"></i> Padam
-            </button>
-          </div>
-        </div>`;
-      }).join('');
-    }
-
-    // ─── Modal Functions ────────────────────────────────────────────────
-
-    function openAddModal() {
-      currentDeviceId = null;
-      // Reset ke step form
-      document.getElementById('stepForm').style.display = '';
-      document.getElementById('stepConnecting').style.display = 'none';
-      document.getElementById('stepSuccess').style.display = 'none';
-      document.getElementById('modalTitle').textContent = 'Tambah Peranti Baru';
-      document.getElementById('processBtn').style.display = '';
-      document.getElementById('processBtn').disabled = false;
-      document.getElementById('processBtn').innerHTML = '<i class="fas fa-play"></i> Proses';
-      document.getElementById('deviceName').value = '';
-      document.getElementById('devicePhone').value = '';
-      document.getElementById('methodQR').checked = true;
-      openModal('addDeviceModal');
-    }
-
-    function closeAddModal() {
-      if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
+        `).join('');
+      } catch (err) {
+        showToast('Gagal memuatkan peranti: ' + err.message, 'error');
       }
-      closeModal('addDeviceModal');
-      loadDevices();
     }
 
-    async function processDevice() {
+    async function addDevice() {
       const name = document.getElementById('deviceName').value.trim();
+      if (!name) return showToast('Sila masukkan nama peranti', 'warning');
+
       const phone = document.getElementById('devicePhone').value.trim();
-      const method = document.querySelector('input[name="connectMethod"]:checked').value;
+      if (currentMethod === 'pairing' && !phone) return showToast('Sila masukkan nombor telefon', 'warning');
 
-      if (!name) { showToast('Sila masukkan nama peranti', 'error'); return; }
-      if (!phone) { showToast('Sila masukkan nombor telefon', 'error'); return; }
-
-      const btn = document.getElementById('processBtn');
+      const btn = document.getElementById('addDeviceBtn');
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner spinner-sm"></span> Memproses...';
 
       try {
-        const res = await api.post('/api/devices', { name, phone, method });
-        const device = res.data || res;
-        currentDeviceId = device.id;
+        const res = await api('/api/devices', {
+          method: 'POST',
+          body: JSON.stringify({ name, phone: phone || null, method: currentMethod })
+        });
 
-        // Tukar ke step connecting
-        document.getElementById('stepForm').style.display = 'none';
-        document.getElementById('stepConnecting').style.display = '';
-        btn.style.display = 'none';
-        document.getElementById('modalTitle').textContent = 'Menyambung Peranti...';
+        hideModal('addDeviceModal');
+        document.getElementById('deviceName').value = '';
+        document.getElementById('devicePhone').value = '';
 
-        if (method === 'qr') {
-          document.getElementById('connectMessage').textContent = 'Menunggu kod QR...';
-        } else {
-          document.getElementById('connectMessage').textContent = 'Mendapatkan pairing code...';
-        }
+        showToast('Peranti ditambah! Sila sambungkan...', 'success');
+        await loadDevices();
 
-        // Mula poll status
-        startPolling(currentDeviceId, method);
-
+        // Show QR/Pairing modal
+        showQRModal(res.data.id, res.data.method);
       } catch (err) {
-        showToast(err.message || 'Gagal memproses peranti', 'error');
+        showToast(err.message, 'error');
+      } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play"></i> Proses';
       }
     }
 
-    function startPolling(deviceId, method) {
-      if (pollTimer) clearInterval(pollTimer);
+    function showQRModal(deviceId, method) {
+      showModal('qrModal');
+      document.getElementById('qrModalTitle').textContent = method === 'pairing' ? '🔢 Kod Pairing' : '📷 Imbas Kod QR';
+      pollQR(deviceId);
+    }
 
-      const poll = async () => {
+    function stopQRPolling() {
+      if (qrPollingId) { clearInterval(qrPollingId); qrPollingId = null; }
+    }
+
+    async function pollQR(deviceId) {
+      stopQRPolling();
+
+      async function check() {
         try {
-          const res = await api.get(`/api/devices/${deviceId}/qr`);
+          const res = await api(`/api/devices/${deviceId}/qr`);
 
-          // Berjaya sambung!
           if (res.status === 'connected') {
-            clearInterval(pollTimer);
-            pollTimer = null;
-            showSuccess();
+            stopQRPolling();
+            hideModal('qrModal');
+            showToast('Peranti berjaya disambungkan! 🎉', 'success');
+            loadDevices();
             return;
           }
 
-          // Ralat
-          if (res.status === 'error' && res.error) {
-            clearInterval(pollTimer);
-            pollTimer = null;
-            document.getElementById('connectMessage').textContent = res.error;
-            document.getElementById('connectMessage').style.color = '#ef4444';
+          if (res.error) {
+            document.getElementById('qrContent').innerHTML = `
+              <div class="text-center" style="padding:20px;">
+                <p style="color:var(--danger); font-size:16px;">❌ ${escapeHtml(res.error)}</p>
+                <button class="btn btn-primary mt-4" onclick="pollQR(${deviceId})">Cuba Semula</button>
+              </div>`;
+            stopQRPolling();
             return;
           }
 
-          // Papar QR
-          if (method === 'qr' && res.qr) {
-            document.getElementById('qrArea').style.display = '';
-            document.getElementById('pairingArea').style.display = 'none';
-            document.getElementById('qrDisplay').innerHTML = `<img src="${res.qr}" alt="QR Code">`;
-            document.getElementById('connectMessage').textContent = 'Imbas kod QR di bawah:';
+          let html = '';
+          if (res.qr) {
+            html = `<div class="qr-container"><img src="${res.qr}" alt="QR Code"><p class="text-sm text-muted mt-2">Imbas kod QR ini di WhatsApp anda</p></div>`;
+          } else if (res.pairingCode) {
+            html = `<div class="pairing-code">${escapeHtml(res.pairingCode)}</div>
+              <button class="btn btn-primary btn-sm" style="display:block;margin:12px auto 0;" onclick="copyPairingCode('${escapeHtml(res.pairingCode)}')">📋 Salin Kod</button>
+              <p class="text-center text-muted mt-2">Masukkan kod ini di WhatsApp anda</p>`;
+          } else {
+            html = `<div class="loading-overlay"><div class="spinner"></div><span>Menjanakan kod...</span></div>`;
           }
-
-          // Papar Pairing Code
-          if (method === 'pairing' && res.pairingCode) {
-            document.getElementById('pairingArea').style.display = '';
-            document.getElementById('qrArea').style.display = 'none';
-            // Format code with dash: XXXX-XXXX
-            const code = res.pairingCode;
-            const formatted = code.length === 8 ? code.slice(0, 4) + '-' + code.slice(4) : code;
-            document.getElementById('pairingCodeDisplay').textContent = formatted;
-            document.getElementById('connectMessage').textContent = 'Masukkan kod ini di WhatsApp anda:';
-          }
-
+          document.getElementById('qrContent').innerHTML = html;
         } catch (err) {
-          // Terus polling
+          console.error('[QR] Ralat:', err);
         }
-      };
+      }
 
-      poll();
-      pollTimer = setInterval(poll, 2500);
+      await check();
+      qrPollingId = setInterval(check, 3000);
     }
-
-    function showSuccess() {
-      document.getElementById('stepConnecting').style.display = 'none';
-      document.getElementById('stepSuccess').style.display = '';
-      document.getElementById('modalTitle').textContent = 'Peranti Berjaya Ditambah';
-
-      // Auto tutup selepas 2 saat
-      setTimeout(() => {
-        closeAddModal();
-        showToast('Peranti berjaya disambungkan!', 'success');
-      }, 2000);
-    }
-
-    // ─── Reconnect (for existing devices) ────────────────────────────────
 
     async function reconnectDevice(id) {
       try {
-        showToast('Menyambung semula peranti...', 'info');
-        // Buka modal dalam connecting mode
-        currentDeviceId = id;
-        document.getElementById('stepForm').style.display = 'none';
-        document.getElementById('stepConnecting').style.display = '';
-        document.getElementById('stepSuccess').style.display = 'none';
-        document.getElementById('modalTitle').textContent = 'Menyambung Semula...';
-        document.getElementById('processBtn').style.display = 'none';
-        document.getElementById('connectMessage').textContent = 'Menunggu kod QR...';
-        document.getElementById('qrArea').style.display = 'none';
-        document.getElementById('pairingArea').style.display = 'none';
-        openModal('addDeviceModal');
-
-        await api.post(`/api/devices/${id}/connect`, { method: 'qr' });
-        startPolling(id, 'qr');
+        await api(`/api/devices/${id}/connect`, { method: 'POST', body: JSON.stringify({ method: 'qr' }) });
+        showToast('Menyambung semula...', 'info');
+        showQRModal(id, 'qr');
       } catch (err) {
-        showToast(err.message || 'Gagal menyambung semula', 'error');
+        showToast(err.message, 'error');
       }
     }
 
     async function disconnectDevice(id) {
-      const ok = await showConfirm('Putus Sambungan', 'Adakah anda pasti mahu memutuskan sambungan peranti ini?');
-      if (!ok) return;
-
+      if (!await confirmAction('Putuskan sambungan peranti ini?')) return;
       try {
-        await api.post(`/api/devices/${id}/disconnect`);
-        showToast('Peranti telah diputuskan sambungan', 'success');
-        await loadDevices();
+        await api(`/api/devices/${id}/disconnect`, { method: 'POST' });
+        showToast('Peranti diputuskan', 'success');
+        loadDevices();
       } catch (err) {
-        showToast(err.message || 'Gagal memutuskan sambungan', 'error');
+        showToast(err.message, 'error');
       }
     }
 
     async function deleteDevice(id, name) {
-      const ok = await showConfirm('Padam Peranti', `Adakah anda pasti mahu memadam peranti <strong>"${name}"</strong>? Tindakan ini tidak boleh dibatalkan.`);
-      if (!ok) return;
-
+      if (!await confirmAction(`Padam peranti "${name}" dan semua data berkaitan?`)) return;
       try {
-        await api.del(`/api/devices/${id}`);
-        showToast('Peranti berjaya dipadam', 'success');
-        await loadDevices();
+        await api(`/api/devices/${id}`, { method: 'DELETE' });
+        showToast('Peranti dipadam', 'success');
+        loadDevices();
       } catch (err) {
-        showToast(err.message || 'Gagal memadam peranti', 'error');
+        showToast(err.message, 'error');
       }
     }
-  </script>
 
+    // Salin kod pairing ke clipboard
+    function copyPairingCode(code) {
+      navigator.clipboard.writeText(code).then(() => {
+        showToast('Kod pairing berjaya disalin! 📋', 'success');
+      }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = code;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('Kod pairing berjaya disalin! 📋', 'success');
+      });
+    }
+
+    // Muat turun data sesi peranti
+    async function downloadSession(id, name) {
+      try {
+        showToast('Memuat turun sesi...', 'info');
+        const response = await fetch(`/api/devices/${id}/download`, { credentials: 'same-origin' });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.error || 'Gagal memuat turun');
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sesi_${name.replace(/\s+/g, '_')}.tar.gz`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showToast('Sesi berjaya dimuat turun! ✅', 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    // Init
+    (async () => {
+      if (!await initPage('devices')) return;
+      await loadDevices();
+
+      onSSE('device-status', (data) => {
+        showToast(`Peranti #${data.deviceId}: ${data.status}`, data.status === 'connected' ? 'success' : 'warning');
+        loadDevices();
+      });
+    })();
+  </script>
 </body>
 </html>

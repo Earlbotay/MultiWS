@@ -1,285 +1,111 @@
 <!DOCTYPE html>
 <html lang="ms">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Semak Nombor - Multichat</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="/css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multichat - Checker</title>
+  <link rel="stylesheet" href="/css/style.css">
 </head>
-<body class="bg-[#0a0a1a] text-white min-h-screen">
+<body>
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main-content">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">✅ Checker</h1>
+        <p class="page-subtitle">Semak status nombor WhatsApp</p>
+      </div>
+    </div>
 
-    <main id="main-content" class="ml-64 p-6">
-        <!-- Header -->
-        <div class="mb-6">
-            <h1 class="text-2xl font-bold"><i class="fas fa-search mr-2 text-[#25D366]"></i>Semak Nombor WhatsApp</h1>
-            <p class="text-gray-400 text-sm mt-1">Semak sama ada nombor telefon mempunyai akaun WhatsApp</p>
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Semak Nombor</h3>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Peranti</label>
+        <select class="form-select" id="checkerDevice"></select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Senarai Nombor (satu per baris)</label>
+        <textarea class="form-textarea" id="checkerPhones" placeholder="60123456789&#10;60198765432&#10;..." rows="6"></textarea>
+      </div>
+
+      <button class="btn btn-primary" id="checkBtn" onclick="checkNumbers()">✅ Semak Nombor</button>
+    </div>
+
+    <div class="card mt-4" id="resultsCard" style="display:none;">
+      <div class="card-header">
+        <h3 class="card-title">Keputusan</h3>
+        <div class="flex gap-2">
+          <span class="badge badge-success" id="validCount">0 sah</span>
+          <span class="badge badge-danger" id="invalidCount">0 tidak sah</span>
         </div>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Nombor</th><th>Status</th></tr></thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Left Column - Input -->
-            <div class="space-y-4">
-                <!-- Device Selector -->
-                <div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-5">
-                    <label class="block text-sm font-medium text-gray-300 mb-2"><i class="fas fa-mobile-alt mr-2"></i>Pilih Peranti</label>
-                    <select id="checkerDevice" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none">
-                        <option value="">-- Pilih Peranti --</option>
-                    </select>
-                </div>
+  <script src="/js/app.js"></script>
+  <script>
+    async function loadDevices() {
+      try {
+        const res = await api('/api/devices');
+        document.getElementById('checkerDevice').innerHTML = (res.data || []).map(d =>
+          `<option value="${d.id}">${escapeHtml(d.name)} ${d.status === 'connected' ? '🟢' : '🔴'}</option>`
+        ).join('');
+      } catch (err) {}
+    }
 
-                <!-- Single Check -->
-                <div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-5">
-                    <h3 class="font-semibold mb-3"><i class="fas fa-user mr-2 text-blue-400"></i>Semak Satu Nombor</h3>
-                    <div class="flex gap-2">
-                        <input id="singlePhone" type="text" placeholder="cth: 60123456789" class="flex-1 bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none font-mono">
-                        <button onclick="checkSingle()" id="btnSingle" class="px-4 py-2 rounded-lg bg-[#25D366] hover:bg-green-600 text-white font-semibold transition whitespace-nowrap">
-                            <i class="fas fa-search mr-1"></i>Semak
-                        </button>
-                    </div>
-                </div>
+    async function checkNumbers() {
+      const phones = document.getElementById('checkerPhones').value.split('\n').map(p => p.trim()).filter(Boolean);
+      if (phones.length === 0) return showToast('Sila masukkan nombor untuk disemak', 'warning');
 
-                <!-- Bulk Check -->
-                <div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-5">
-                    <div class="flex items-center justify-between mb-3">
-                        <h3 class="font-semibold"><i class="fas fa-users mr-2 text-purple-400"></i>Semak Pukal</h3>
-                        <span id="bulkCount" class="text-sm text-gray-400">0 nombor</span>
-                    </div>
-                    <textarea id="bulkPhones" rows="8" placeholder="Satu nombor setiap baris&#10;cth:&#10;60123456789&#10;60198765432&#10;60112233445" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none resize-none font-mono text-sm mb-3" oninput="updateBulkCount()"></textarea>
-                    <button onclick="checkBulk()" id="btnBulk" class="w-full px-4 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-semibold transition">
-                        <i class="fas fa-search mr-2"></i>Semak Semua
-                    </button>
-                </div>
-            </div>
+      const deviceId = document.getElementById('checkerDevice').value;
+      if (!deviceId) return showToast('Sila pilih peranti', 'warning');
 
-            <!-- Right Column - Results -->
-            <div class="space-y-4">
-                <!-- Summary Stats -->
-                <div class="grid grid-cols-3 gap-3">
-                    <div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-4 text-center">
-                        <p class="text-gray-400 text-xs uppercase mb-1">Jumlah Disemak</p>
-                        <p id="statTotal" class="text-2xl font-bold">0</p>
-                    </div>
-                    <div class="bg-[#16213e] rounded-xl border border-green-500/30 p-4 text-center">
-                        <p class="text-gray-400 text-xs uppercase mb-1">Ada WhatsApp</p>
-                        <p id="statExists" class="text-2xl font-bold text-green-400">0</p>
-                    </div>
-                    <div class="bg-[#16213e] rounded-xl border border-red-500/30 p-4 text-center">
-                        <p class="text-gray-400 text-xs uppercase mb-1">Tiada WhatsApp</p>
-                        <p id="statNotExists" class="text-2xl font-bold text-red-400">0</p>
-                    </div>
-                </div>
+      const btn = document.getElementById('checkBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="progress-ring"></span> Menyemak...';
 
-                <!-- Actions -->
-                <div class="flex gap-2">
-                    <button onclick="copyActiveNumbers()" class="flex-1 px-3 py-2 rounded-lg bg-[#0f3460] hover:bg-[#0f3460]/80 text-gray-300 text-sm transition border border-gray-700/50">
-                        <i class="fas fa-copy mr-1"></i>Salin Nombor Aktif
-                    </button>
-                    <button onclick="exportCSV()" class="flex-1 px-3 py-2 rounded-lg bg-[#0f3460] hover:bg-[#0f3460]/80 text-gray-300 text-sm transition border border-gray-700/50">
-                        <i class="fas fa-download mr-1"></i>Eksport CSV
-                    </button>
-                </div>
-
-                <!-- Results Table -->
-                <div class="bg-[#16213e] rounded-xl border border-gray-700/50 overflow-hidden">
-                    <div class="p-4 border-b border-gray-700/50">
-                        <h3 class="font-semibold"><i class="fas fa-list mr-2"></i>Hasil Semakan</h3>
-                    </div>
-                    <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
-                        <table class="w-full text-sm">
-                            <thead class="bg-[#0f3460] text-gray-300 uppercase text-xs sticky top-0">
-                                <tr>
-                                    <th class="px-4 py-3 text-left">Nombor</th>
-                                    <th class="px-4 py-3 text-center">Status</th>
-                                    <th class="px-4 py-3 text-left">JID</th>
-                                </tr>
-                            </thead>
-                            <tbody id="resultsBody">
-                                <tr>
-                                    <td colspan="3" class="text-center py-12 text-gray-400">
-                                        <i class="fas fa-search text-4xl mb-3 block text-gray-600"></i>
-                                        <p>Masukkan nombor dan klik "Semak" untuk mula</p>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </main>
-
-    <script src="/js/app.js"></script>
-    <script>
-        let results = [];
-
-        document.addEventListener('DOMContentLoaded', () => {
-            loadSidebar();
-            setActiveNav('checker');
-            loadDevices();
+      try {
+        const res = await api('/api/checker/check', {
+          method: 'POST',
+          body: JSON.stringify({ deviceId: parseInt(deviceId), phones })
         });
 
-        async function loadDevices() {
-            try {
-                const res = await fetch('/api/devices');
-                const data = await res.json();
-                const select = document.getElementById('checkerDevice');
-                const devices = (data.data || data.devices || []).filter(d => d.status === 'connected');
-                devices.forEach(d => {
-                    const opt = document.createElement('option');
-                    opt.value = d.id;
-                    opt.textContent = d.name || d.id;
-                    select.appendChild(opt);
-                });
-            } catch (e) {
-                console.error('Gagal memuatkan peranti:', e);
-            }
-        }
+        const results = res.data || [];
+        const valid = results.filter(r => r.exists);
+        const invalid = results.filter(r => !r.exists);
 
-        function updateBulkCount() {
-            const phones = document.getElementById('bulkPhones').value.split('\n').map(p => p.trim()).filter(Boolean);
-            document.getElementById('bulkCount').textContent = `${phones.length} nombor`;
-        }
+        document.getElementById('validCount').textContent = `${valid.length} sah`;
+        document.getElementById('invalidCount').textContent = `${invalid.length} tidak sah`;
+        document.getElementById('resultsBody').innerHTML = results.map(r => `
+          <tr>
+            <td>${escapeHtml(r.phone)}</td>
+            <td><span class="badge badge-${r.exists ? 'success' : 'danger'}">${r.exists ? 'WhatsApp aktif' : 'Tiada WhatsApp'}</span></td>
+          </tr>
+        `).join('');
 
-        async function checkSingle() {
-            const deviceId = document.getElementById('checkerDevice').value;
-            const phone = document.getElementById('singlePhone').value.trim();
-            if (!deviceId) return showToast('Sila pilih peranti', 'error');
-            if (!phone) return showToast('Sila masukkan nombor telefon', 'error');
+        document.getElementById('resultsCard').style.display = '';
+        showToast(`Semakan selesai: ${valid.length} sah, ${invalid.length} tidak sah`, 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '✅ Semak Nombor';
+      }
+    }
 
-            const btn = document.getElementById('btnSingle');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Menyemak...';
-
-            try {
-                const res = await fetch('/api/checker/check-single', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ deviceId, phone })
-                });
-                const _raw = await res.json();
-                if (!res.ok) throw new Error(_raw.error || _raw.message || 'Gagal');
-                const data = _raw.data || _raw;
-
-                const existing = results.findIndex(r => r.phone === phone);
-                const entry = { phone, exists: data.exists, jid: data.jid || '-' };
-                if (existing >= 0) results[existing] = entry;
-                else results.unshift(entry);
-
-                renderResults();
-                showToast('Semakan selesai', 'success');
-            } catch (e) {
-                showToast(e.message || 'Gagal menyemak nombor', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-search mr-1"></i>Semak';
-            }
-        }
-
-        async function checkBulk() {
-            const deviceId = document.getElementById('checkerDevice').value;
-            const phones = document.getElementById('bulkPhones').value.split('\n').map(p => p.trim()).filter(Boolean);
-            if (!deviceId) return showToast('Sila pilih peranti', 'error');
-            if (!phones.length) return showToast('Sila masukkan sekurang-kurangnya satu nombor', 'error');
-
-            const btn = document.getElementById('btnBulk');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Menyemak...';
-
-            try {
-                const res = await fetch('/api/checker/check', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ deviceId, phones })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.message || 'Gagal');
-
-                const checkResults = data.data || data.results || [];
-                checkResults.forEach(r => {
-                    const existing = results.findIndex(x => x.phone === r.phone);
-                    const entry = { phone: r.phone, exists: r.exists, jid: r.jid || '-' };
-                    if (existing >= 0) results[existing] = entry;
-                    else results.push(entry);
-                });
-
-                renderResults();
-                showToast(`${checkResults.length} nombor berjaya disemak`, 'success');
-            } catch (e) {
-                showToast(e.message || 'Gagal menyemak nombor', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-search mr-2"></i>Semak Semua';
-            }
-        }
-
-        function renderResults() {
-            const total = results.length;
-            const exists = results.filter(r => r.exists).length;
-            const notExists = total - exists;
-
-            document.getElementById('statTotal').textContent = total;
-            document.getElementById('statExists').textContent = exists;
-            document.getElementById('statNotExists').textContent = notExists;
-
-            const tbody = document.getElementById('resultsBody');
-            if (!results.length) {
-                tbody.innerHTML = `<tr><td colspan="3" class="text-center py-12 text-gray-400"><i class="fas fa-search text-4xl mb-3 block text-gray-600"></i><p>Tiada hasil</p></td></tr>`;
-                return;
-            }
-            tbody.innerHTML = results.map(r => `
-                <tr class="border-b border-gray-700/30 hover:bg-[#0f3460]/20">
-                    <td class="px-4 py-2 font-mono text-sm">${esc(r.phone)}</td>
-                    <td class="px-4 py-2 text-center">
-                        ${r.exists
-                            ? '<span class="text-green-400"><i class="fas fa-check-circle mr-1"></i>Ada</span>'
-                            : '<span class="text-red-400"><i class="fas fa-times-circle mr-1"></i>Tiada</span>'
-                        }
-                    </td>
-                    <td class="px-4 py-2 text-gray-400 text-sm font-mono">${esc(r.jid)}</td>
-                </tr>
-            `).join('');
-        }
-
-        function copyActiveNumbers() {
-            const active = results.filter(r => r.exists).map(r => r.phone);
-            if (!active.length) return showToast('Tiada nombor aktif untuk disalin', 'error');
-            navigator.clipboard.writeText(active.join('\n')).then(() => {
-                showToast(`${active.length} nombor aktif berjaya disalin`, 'success');
-            }).catch(() => showToast('Gagal menyalin', 'error'));
-        }
-
-        function exportCSV() {
-            if (!results.length) return showToast('Tiada data untuk dieksport', 'error');
-            let csv = 'Nombor,Status,JID\n';
-            results.forEach(r => {
-                csv += `${r.phone},${r.exists ? 'Ada' : 'Tiada'},${r.jid}\n`;
-            });
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `semakan_nombor_${new Date().toISOString().slice(0, 10)}.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
-            showToast('CSV berjaya dimuat turun', 'success');
-        }
-
-        function esc(str) {
-            if (!str) return '';
-            const d = document.createElement('div');
-            d.textContent = str;
-            return d.innerHTML;
-        }
-
-        function showToast(msg, type) {
-            if (typeof window.showAppToast === 'function') return window.showAppToast(msg, type);
-            const toast = document.createElement('div');
-            toast.className = `fixed top-4 right-4 z-[999] px-4 py-3 rounded-lg text-white text-sm font-medium shadow-lg ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`;
-            toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>${msg}`;
-            document.body.appendChild(toast);
-            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
-        }
-    </script>
+    (async () => {
+      if (!await initPage('checker')) return;
+      await loadDevices();
+    })();
+  </script>
 </body>
 </html>

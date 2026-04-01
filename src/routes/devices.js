@@ -2,17 +2,26 @@ const express = require('express');
 const router = express.Router();
 const QRCode = require('qrcode');
 const { db } = require('../database');
-const { requireAuth } = require('../auth');
 const waManager = require('../whatsapp/manager');
 const { triggerSync } = require('../sync');
+const events = require('../events');
+const path = require('path');
+const fs = require('fs');
+const { execSync } = require('child_process');
+const config = require('../config');
 
-router.use(requireAuth);
+// Regex untuk validasi nombor telefon
+const PHONE_REGEX = /^[1-9]\d{7,14}$/;
+
+function cleanPhone(phone) {
+  if (!phone) return null;
+  return phone.replace(/[\s\-\+\(\)]/g, '');
+}
 
 // Senaraikan peranti
 router.get('/', (req, res) => {
   try {
     const devices = db.prepare('SELECT * FROM devices WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
-    // Tambah status langsung dari WAManager
     const devicesWithStatus = devices.map(d => ({
       ...d,
       status: waManager.getStatus(d.id) || d.status
@@ -28,18 +37,32 @@ router.get('/', (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { name, phone, method } = req.body;
-    if (!name) return res.status(400).json({ success: false, error: 'Nama peranti diperlukan' });
-    if (!phone) return res.status(400).json({ success: false, error: 'Nombor telefon diperlukan' });
+    if (!name || !name.trim()) return res.status(400).json({ success: false, error: 'Nama peranti diperlukan' });
 
     const connectMethod = method === 'pairing' ? 'pairing' : 'qr';
+    let cleanedPhone = cleanPhone(phone);
 
-    const result = db.prepare('INSERT INTO devices (user_id, name, phone, status) VALUES (?, ?, ?, ?)').run(req.user.id, name.trim(), phone.trim(), 'connecting');
+    // Untuk kaedah pairing, nombor telefon wajib
+    if (connectMethod === 'pairing') {
+      if (!cleanedPhone) return res.status(400).json({ success: false, error: 'Nombor telefon diperlukan untuk kaedah pairing' });
+      if (!PHONE_REGEX.test(cleanedPhone)) return res.status(400).json({ success: false, error: 'Format nombor telefon tidak sah. Gunakan format: 60123456789' });
+    }
+
+    // Semak nombor telefon pendua (jika diberikan)
+    if (cleanedPhone) {
+      const existing = db.prepare('SELECT * FROM devices WHERE phone = ? AND user_id = ?').get(cleanedPhone, req.user.id);
+      if (existing) {
+        return res.status(400).json({ success: false, error: `Nombor ${cleanedPhone} sudah didaftarkan pada peranti "${existing.name}"` });
+      }
+    }
+
+    const result = db.prepare('INSERT INTO devices (user_id, name, phone, status) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, name.trim(), cleanedPhone || null, 'connecting');
     const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(result.lastInsertRowid);
 
     console.log(`[Peranti] Peranti baru ditambah: "${name}" (ID: ${device.id}, Kaedah: ${connectMethod})`);
 
-    // Mulakan sesi WhatsApp terus
-    await waManager.startSession(device.id, connectMethod, phone.trim());
+    await waManager.startSession(device.id, connectMethod, cleanedPhone);
 
     triggerSync('peranti: tambah baru');
     res.json({ success: true, data: { ...device, method: connectMethod } });
@@ -49,7 +72,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Sambung semula peranti sedia ada
+// Sambung semula peranti
 router.post('/:id/connect', async (req, res) => {
   try {
     const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
@@ -103,16 +126,15 @@ router.get('/:id/status', (req, res) => {
   }
 });
 
-// Putuskan sambungan peranti
+// Putuskan sambungan
 router.post('/:id/disconnect', async (req, res) => {
   try {
     const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
     if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
 
     await waManager.stopSession(device.id);
-
     triggerSync('peranti: putus sambungan');
-    console.log(`[Peranti] Peranti #${device.id} telah diputuskan sambungan`);
+    events.emit(req.user.id, 'device-status', { deviceId: device.id, status: 'disconnected' });
     res.json({ success: true, data: { message: 'Peranti diputuskan' } });
   } catch (err) {
     console.error(`[Peranti] Ralat memutuskan sambungan: ${err.message}`);
@@ -127,12 +149,35 @@ router.delete('/:id', async (req, res) => {
     if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
 
     await waManager.deleteSession(device.id);
-
     triggerSync('peranti: padam');
-    console.log(`[Peranti] Peranti #${device.id} dan semua data berkaitan telah dipadam`);
+    events.emit(req.user.id, 'device-status', { deviceId: device.id, status: 'deleted' });
     res.json({ success: true, data: { message: 'Peranti dipadam' } });
   } catch (err) {
     console.error(`[Peranti] Ralat memadam peranti: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Muat turun data sesi peranti (backup)
+router.get('/:id/download', (req, res) => {
+  try {
+    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+
+    const authDir = path.join(config.SESSIONS_DIR, `device_${device.id}`);
+    if (!fs.existsSync(authDir)) {
+      return res.status(404).json({ success: false, error: 'Tiada data sesi untuk peranti ini' });
+    }
+
+    const tmpFile = `/tmp/device_${device.id}_session_${Date.now()}.tar.gz`;
+    execSync(`tar -czf "${tmpFile}" -C "${config.SESSIONS_DIR}" "device_${device.id}"`);
+
+    const safeName = device.name.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    res.download(tmpFile, `sesi_${safeName}.tar.gz`, () => {
+      try { fs.unlinkSync(tmpFile); } catch(e) {}
+    });
+  } catch (err) {
+    console.error(`[Peranti] Ralat memuat turun sesi: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -11,6 +11,7 @@ const fs = require('fs');
 const config = require('../config');
 const { db } = require('../database');
 const { triggerSync } = require('../sync');
+const events = require('../events');
 
 class WAManager {
   constructor() {
@@ -122,6 +123,12 @@ class WAManager {
           db.prepare('UPDATE devices SET status = ?, phone = ?, updated_at = datetime(\'now\') WHERE id = ?')
             .run('connected', phone, deviceId);
           triggerSync('peranti: berjaya disambung');
+
+          // Emit SSE event
+          try {
+            const deviceInfo = db.prepare('SELECT user_id FROM devices WHERE id = ?').get(deviceId);
+            if (deviceInfo) events.emit(deviceInfo.user_id, 'device-status', { deviceId, status: 'connected', phone });
+          } catch (e) {}
         }
 
         if (connection === 'close') {

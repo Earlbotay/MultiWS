@@ -1,11 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { requireAuth } = require('../auth');
 const checkerService = require('../whatsapp/checker');
 const { db } = require('../database');
 const { triggerSync } = require('../sync');
 
-router.use(requireAuth);
 
 // Semak pelbagai nombor
 router.post('/check', async (req, res) => {

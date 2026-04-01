@@ -1,375 +1,106 @@
 <!DOCTYPE html>
 <html lang="ms">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Status WhatsApp - Multichat</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="/css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multichat - Status</title>
+  <link rel="stylesheet" href="/css/style.css">
 </head>
-<body class="bg-[#0a0a1a] text-white min-h-screen">
+<body>
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main-content">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">📡 Status Sistem</h1>
+        <p class="page-subtitle">Pantau status perkhidmatan Multichat</p>
+      </div>
+      <button class="btn btn-outline" onclick="loadStatus()">🔄 Muat Semula</button>
+    </div>
 
-    <main id="main-content" class="ml-64 p-6">
-        <!-- Header -->
-        <div class="mb-6">
-            <h1 class="text-2xl font-bold"><i class="fas fa-circle-notch mr-2 text-[#25D366]"></i>Status WhatsApp (Story)</h1>
-            <p class="text-gray-400 text-sm mt-1">Muat naik status teks, gambar atau video ke WhatsApp</p>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon green">🟢</div>
+        <div>
+          <div class="stat-value" id="serverStatus">-</div>
+          <div class="stat-label">Status Pelayan</div>
         </div>
-
-        <!-- Tabs -->
-        <div class="flex gap-1 mb-6 bg-[#16213e] rounded-xl p-1 border border-gray-700/50 w-fit">
-            <button onclick="switchTab('text')" id="tabText" class="tab-btn px-5 py-2.5 rounded-lg text-sm font-medium transition bg-[#25D366] text-white">
-                <i class="fas fa-font mr-2"></i>Status Teks
-            </button>
-            <button onclick="switchTab('image')" id="tabImage" class="tab-btn px-5 py-2.5 rounded-lg text-sm font-medium transition text-gray-400 hover:text-white">
-                <i class="fas fa-image mr-2"></i>Status Gambar
-            </button>
-            <button onclick="switchTab('video')" id="tabVideo" class="tab-btn px-5 py-2.5 rounded-lg text-sm font-medium transition text-gray-400 hover:text-white">
-                <i class="fas fa-video mr-2"></i>Status Video
-            </button>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">⏱</div>
+        <div>
+          <div class="stat-value" id="uptime">-</div>
+          <div class="stat-label">Masa Aktif</div>
         </div>
-
-        <div class="max-w-2xl">
-            <!-- Tab 1: Status Teks -->
-            <div id="panelText" class="tab-panel">
-                <div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-6 space-y-5">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-1"><i class="fas fa-mobile-alt mr-2"></i>Pilih Peranti</label>
-                        <select id="textDevice" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none device-select">
-                            <option value="">-- Pilih Peranti --</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-1">Teks Status</label>
-                        <textarea id="statusText" rows="3" placeholder="Tulis status anda di sini..." class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none resize-none" oninput="updateTextPreview()"></textarea>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-2">Warna Latar</label>
-                        <div id="colorPicker" class="flex flex-wrap gap-2 mb-3">
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <input id="customColor" type="color" value="#00bfa5" class="w-10 h-10 rounded cursor-pointer border-0 bg-transparent" onchange="selectColor(this.value)">
-                            <span class="text-xs text-gray-400">atau pilih warna tersuai</span>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-1">Font</label>
-                        <select id="statusFont" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none" onchange="updateTextPreview()">
-                            <option value="1">Font 1 - Sans Serif</option>
-                            <option value="2">Font 2 - Serif</option>
-                            <option value="3">Font 3 - Norican Script</option>
-                            <option value="4">Font 4 - Bryndan Write</option>
-                            <option value="5">Font 5 - Bebasneue</option>
-                        </select>
-                    </div>
-
-                    <!-- Text Preview -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-2">Pratonton</label>
-                        <div id="textPreview" class="rounded-xl h-48 flex items-center justify-center text-white text-lg font-medium text-center px-6" style="background-color: #00bfa5;">
-                            <span class="opacity-50">Pratonton status anda</span>
-                        </div>
-                    </div>
-
-                    <button onclick="sendTextStatus()" id="btnTextStatus" class="w-full px-4 py-3 rounded-lg bg-[#25D366] hover:bg-green-600 text-white font-semibold transition">
-                        <i class="fas fa-paper-plane mr-2"></i>Hantar Status Teks
-                    </button>
-                </div>
-            </div>
-
-            <!-- Tab 2: Status Gambar -->
-            <div id="panelImage" class="tab-panel hidden">
-                <div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-6 space-y-5">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-1"><i class="fas fa-mobile-alt mr-2"></i>Pilih Peranti</label>
-                        <select id="imageDevice" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none device-select">
-                            <option value="">-- Pilih Peranti --</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-2">Muat Naik Gambar</label>
-                        <div id="imageDropZone" class="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-[#25D366] transition" onclick="document.getElementById('imageFile').click()">
-                            <i class="fas fa-cloud-upload-alt text-3xl text-gray-500 mb-2"></i>
-                            <p class="text-gray-400 text-sm">Klik atau seret gambar ke sini</p>
-                            <p class="text-gray-600 text-xs mt-1">JPG, PNG, GIF (maks 16MB)</p>
-                        </div>
-                        <input id="imageFile" type="file" accept="image/*" class="hidden" onchange="previewImage(this)">
-                        <div id="imagePreviewContainer" class="mt-3 hidden">
-                            <img id="imagePreview" class="max-h-48 rounded-lg mx-auto" alt="Pratonton">
-                            <button onclick="clearImage()" class="text-red-400 text-xs mt-2 hover:underline block mx-auto"><i class="fas fa-times mr-1"></i>Buang gambar</button>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-1">Caption <span class="text-gray-500">(pilihan)</span></label>
-                        <textarea id="imageCaption" rows="2" placeholder="Tulis caption..." class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none resize-none"></textarea>
-                    </div>
-                    <button onclick="sendImageStatus()" id="btnImageStatus" class="w-full px-4 py-3 rounded-lg bg-[#25D366] hover:bg-green-600 text-white font-semibold transition">
-                        <i class="fas fa-paper-plane mr-2"></i>Hantar Status Gambar
-                    </button>
-                </div>
-            </div>
-
-            <!-- Tab 3: Status Video -->
-            <div id="panelVideo" class="tab-panel hidden">
-                <div class="bg-[#16213e] rounded-xl border border-gray-700/50 p-6 space-y-5">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-1"><i class="fas fa-mobile-alt mr-2"></i>Pilih Peranti</label>
-                        <select id="videoDevice" class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none device-select">
-                            <option value="">-- Pilih Peranti --</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-2">Muat Naik Video</label>
-                        <div id="videoDropZone" class="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-[#25D366] transition" onclick="document.getElementById('videoFile').click()">
-                            <i class="fas fa-film text-3xl text-gray-500 mb-2"></i>
-                            <p class="text-gray-400 text-sm">Klik atau seret video ke sini</p>
-                            <p class="text-gray-600 text-xs mt-1">MP4, 3GP (maks 16MB)</p>
-                        </div>
-                        <input id="videoFile" type="file" accept="video/*" class="hidden" onchange="previewVideo(this)">
-                        <div id="videoPreviewContainer" class="mt-3 hidden">
-                            <div class="flex items-center gap-3 bg-[#1a1a2e] rounded-lg p-3">
-                                <i class="fas fa-file-video text-2xl text-purple-400"></i>
-                                <div class="flex-1 min-w-0">
-                                    <p id="videoFileName" class="text-sm truncate">video.mp4</p>
-                                    <p id="videoFileSize" class="text-xs text-gray-400">0 MB</p>
-                                </div>
-                                <button onclick="clearVideo()" class="text-red-400 text-xs hover:underline"><i class="fas fa-times"></i></button>
-                            </div>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-1">Caption <span class="text-gray-500">(pilihan)</span></label>
-                        <textarea id="videoCaption" rows="2" placeholder="Tulis caption..." class="w-full bg-[#1a1a2e] border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-[#25D366] focus:outline-none resize-none"></textarea>
-                    </div>
-                    <button onclick="sendVideoStatus()" id="btnVideoStatus" class="w-full px-4 py-3 rounded-lg bg-[#25D366] hover:bg-green-600 text-white font-semibold transition">
-                        <i class="fas fa-paper-plane mr-2"></i>Hantar Status Video
-                    </button>
-                </div>
-            </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon purple">📱</div>
+        <div>
+          <div class="stat-value" id="deviceStatus">-</div>
+          <div class="stat-label">Peranti Tersambung</div>
         </div>
-    </main>
+      </div>
+    </div>
 
-    <script src="/js/app.js"></script>
-    <script>
-        const presetColors = ['#00bfa5', '#00897b', '#128c7e', '#075e54', '#25d366', '#dcf8c6', '#5c6bc0', '#7c4dff', '#e91e63', '#ff6f00'];
-        let selectedColor = '#00bfa5';
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">📱 Status Peranti</h3>
+      </div>
+      <div id="deviceStatusList">
+        <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
+      </div>
+    </div>
+  </div>
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadSidebar();
-            setActiveNav('status');
-            loadDevices();
-            renderColorPicker();
-        });
+  <script src="/js/app.js"></script>
+  <script>
+    function formatUptime(seconds) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return `${h}j ${m}m`;
+    }
 
-        async function loadDevices() {
-            try {
-                const res = await fetch('/api/devices');
-                const data = await res.json();
-                const devices = (data.data || data.devices || []).filter(d => d.status === 'connected');
-                document.querySelectorAll('.device-select').forEach(select => {
-                    devices.forEach(d => {
-                        const opt = document.createElement('option');
-                        opt.value = d.id;
-                        opt.textContent = d.name || d.id;
-                        select.appendChild(opt);
-                    });
-                });
-            } catch (e) {
-                console.error('Gagal memuatkan peranti:', e);
-            }
+    async function loadStatus() {
+      try {
+        const [healthRes, devicesRes] = await Promise.all([
+          api('/api/health'),
+          api('/api/devices')
+        ]);
+
+        document.getElementById('serverStatus').textContent = healthRes.status === 'ok' ? 'Aktif' : 'Ralat';
+        document.getElementById('uptime').textContent = formatUptime(healthRes.uptime || 0);
+
+        const devices = devicesRes.data || [];
+        const connected = devices.filter(d => d.status === 'connected').length;
+        document.getElementById('deviceStatus').textContent = `${connected}/${devices.length}`;
+
+        if (devices.length === 0) {
+          document.getElementById('deviceStatusList').innerHTML = '<p class="text-center text-muted" style="padding:20px;">Tiada peranti</p>';
+        } else {
+          document.getElementById('deviceStatusList').innerHTML = `
+            <div class="table-container">
+              <table>
+                <thead><tr><th>Peranti</th><th>Nombor</th><th>Status</th></tr></thead>
+                <tbody>${devices.map(d => `
+                  <tr>
+                    <td><strong>${escapeHtml(d.name)}</strong></td>
+                    <td class="text-muted">${d.phone ? formatPhone(d.phone) : '-'}</td>
+                    <td><span class="badge badge-${d.status === 'connected' ? 'success' : d.status === 'connecting' ? 'warning' : 'danger'}">${d.status}</span></td>
+                  </tr>
+                `).join('')}</tbody>
+              </table>
+            </div>`;
         }
+      } catch (err) {
+        showToast('Gagal memuatkan status: ' + err.message, 'error');
+      }
+    }
 
-        function renderColorPicker() {
-            const container = document.getElementById('colorPicker');
-            container.innerHTML = presetColors.map(c =>
-                `<button onclick="selectColor('${c}')" class="color-btn w-9 h-9 rounded-full border-2 transition hover:scale-110 ${c === selectedColor ? 'border-white scale-110' : 'border-transparent'}" style="background-color:${c}" title="${c}"></button>`
-            ).join('');
-        }
+    (async () => {
+      if (!await initPage('status')) return;
+      await loadStatus();
 
-        function selectColor(color) {
-            selectedColor = color;
-            document.getElementById('customColor').value = color;
-            renderColorPicker();
-            updateTextPreview();
-        }
-
-        function updateTextPreview() {
-            const text = document.getElementById('statusText').value.trim();
-            const preview = document.getElementById('textPreview');
-            preview.style.backgroundColor = selectedColor;
-
-            const fontMap = { '1': "'Helvetica Neue', sans-serif", '2': 'serif', '3': 'cursive', '4': 'fantasy', '5': "'Impact', sans-serif" };
-            const fontVal = document.getElementById('statusFont').value;
-            preview.style.fontFamily = fontMap[fontVal] || 'sans-serif';
-
-            if (text) {
-                const isDark = isColorDark(selectedColor);
-                preview.innerHTML = `<span class="${isDark ? 'text-white' : 'text-gray-900'}">${esc(text)}</span>`;
-            } else {
-                preview.innerHTML = '<span class="opacity-50">Pratonton status anda</span>';
-            }
-        }
-
-        function isColorDark(hex) {
-            const r = parseInt(hex.slice(1, 3), 16);
-            const g = parseInt(hex.slice(3, 5), 16);
-            const b = parseInt(hex.slice(5, 7), 16);
-            return (r * 299 + g * 587 + b * 114) / 1000 < 160;
-        }
-
-        function switchTab(tab) {
-            document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-            document.querySelectorAll('.tab-btn').forEach(b => {
-                b.classList.remove('bg-[#25D366]', 'text-white');
-                b.classList.add('text-gray-400');
-            });
-            document.getElementById(`panel${tab.charAt(0).toUpperCase() + tab.slice(1)}`).classList.remove('hidden');
-            const activeBtn = document.getElementById(`tab${tab.charAt(0).toUpperCase() + tab.slice(1)}`);
-            activeBtn.classList.add('bg-[#25D366]', 'text-white');
-            activeBtn.classList.remove('text-gray-400');
-        }
-
-        function previewImage(input) {
-            if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = e => {
-                    document.getElementById('imagePreview').src = e.target.result;
-                    document.getElementById('imagePreviewContainer').classList.remove('hidden');
-                    document.getElementById('imageDropZone').classList.add('hidden');
-                };
-                reader.readAsDataURL(input.files[0]);
-            }
-        }
-
-        function clearImage() {
-            document.getElementById('imageFile').value = '';
-            document.getElementById('imagePreviewContainer').classList.add('hidden');
-            document.getElementById('imageDropZone').classList.remove('hidden');
-        }
-
-        function previewVideo(input) {
-            if (input.files && input.files[0]) {
-                const file = input.files[0];
-                document.getElementById('videoFileName').textContent = file.name;
-                document.getElementById('videoFileSize').textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
-                document.getElementById('videoPreviewContainer').classList.remove('hidden');
-                document.getElementById('videoDropZone').classList.add('hidden');
-            }
-        }
-
-        function clearVideo() {
-            document.getElementById('videoFile').value = '';
-            document.getElementById('videoPreviewContainer').classList.add('hidden');
-            document.getElementById('videoDropZone').classList.remove('hidden');
-        }
-
-        async function sendTextStatus() {
-            const deviceId = document.getElementById('textDevice').value;
-            const text = document.getElementById('statusText').value.trim();
-            if (!deviceId) return showToast('Sila pilih peranti', 'error');
-            if (!text) return showToast('Sila masukkan teks status', 'error');
-
-            const btn = document.getElementById('btnTextStatus');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Menghantar...';
-
-            try {
-                const res = await fetch('/api/status/text', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        deviceId,
-                        text,
-                        backgroundColor: selectedColor,
-                        font: parseInt(document.getElementById('statusFont').value)
-                    })
-                });
-                if (!res.ok) throw new Error();
-                showToast('Status teks berjaya dihantar!', 'success');
-                document.getElementById('statusText').value = '';
-                updateTextPreview();
-            } catch (e) {
-                showToast('Gagal menghantar status teks', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Hantar Status Teks';
-            }
-        }
-
-        async function sendImageStatus() {
-            const deviceId = document.getElementById('imageDevice').value;
-            const file = document.getElementById('imageFile').files[0];
-            if (!deviceId) return showToast('Sila pilih peranti', 'error');
-            if (!file) return showToast('Sila muat naik gambar', 'error');
-
-            const btn = document.getElementById('btnImageStatus');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Menghantar...';
-
-            try {
-                const fd = new FormData();
-                fd.append('deviceId', deviceId);
-                fd.append('file', file);
-                fd.append('caption', document.getElementById('imageCaption').value.trim());
-
-                const res = await fetch('/api/status/image', { method: 'POST', body: fd });
-                if (!res.ok) throw new Error();
-                showToast('Status gambar berjaya dihantar!', 'success');
-                clearImage();
-                document.getElementById('imageCaption').value = '';
-            } catch (e) {
-                showToast('Gagal menghantar status gambar', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Hantar Status Gambar';
-            }
-        }
-
-        async function sendVideoStatus() {
-            const deviceId = document.getElementById('videoDevice').value;
-            const file = document.getElementById('videoFile').files[0];
-            if (!deviceId) return showToast('Sila pilih peranti', 'error');
-            if (!file) return showToast('Sila muat naik video', 'error');
-
-            const btn = document.getElementById('btnVideoStatus');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Menghantar...';
-
-            try {
-                const fd = new FormData();
-                fd.append('deviceId', deviceId);
-                fd.append('file', file);
-                fd.append('caption', document.getElementById('videoCaption').value.trim());
-
-                const res = await fetch('/api/status/video', { method: 'POST', body: fd });
-                if (!res.ok) throw new Error();
-                showToast('Status video berjaya dihantar!', 'success');
-                clearVideo();
-                document.getElementById('videoCaption').value = '';
-            } catch (e) {
-                showToast('Gagal menghantar status video', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Hantar Status Video';
-            }
-        }
-
-        function esc(str) {
-            if (!str) return '';
-            const d = document.createElement('div');
-            d.textContent = str;
-            return d.innerHTML;
-        }
-
-        function showToast(msg, type) {
-            if (typeof window.showAppToast === 'function') return window.showAppToast(msg, type);
-            const toast = document.createElement('div');
-            toast.className = `fixed top-4 right-4 z-[999] px-4 py-3 rounded-lg text-white text-sm font-medium shadow-lg ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`;
-            toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} mr-2"></i>${msg}`;
-            document.body.appendChild(toast);
-            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
-        }
-    </script>
+      onSSE('device-status', () => loadStatus());
+    })();
+  </script>
 </body>
 </html>

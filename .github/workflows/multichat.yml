@@ -4,12 +4,12 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: '0 */5 * * *'  # Every 5 hours as fallback restart
+    - cron: '0 */5 * * *'
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 300  # 5 hours
+    timeout-minutes: 300
 
     steps:
       - name: Checkout
@@ -33,29 +33,18 @@ jobs:
       - name: Clone data repo
         run: |
           git clone https://x-access-token:${{ secrets.DATA_REPO_TOKEN }}@github.com/${{ secrets.DATA_REPO }}.git MULTIWSDATA
-          # Create default directories if first run
-          mkdir -p MULTIWSDATA/auth MULTIWSDATA/uploads MULTIWSDATA/db MULTIWSDATA/sessions
-          # Set git config for sync commits
+          mkdir -p MULTIWSDATA/sessions MULTIWSDATA/uploads MULTIWSDATA/db MULTIWSDATA/logs
           cd MULTIWSDATA
           git config user.email "multichat-bot@users.noreply.github.com"
           git config user.name "Multichat Bot"
-          
-          # Tambah .gitignore untuk elak fail sementara
           printf '*.db-wal\n*.db-shm\n*.log\n' > .gitignore
-          
-          # Initial commit jika repo kosong
+
           if [ -z "$(git log --oneline 2>/dev/null)" ]; then
             git add -A
             git commit -m "init: struktur data awal" || true
             git push origin main || git push origin HEAD:main
-            echo "Repo data dimulakan dengan commit pertama"
           fi
           cd ..
-          
-          # Copy database if exists
-          if [ -f MULTIWSDATA/db/multichat.db ]; then
-            echo "Pangkalan data sedia ada dijumpai"
-          fi
 
       - name: Install Cloudflare Tunnel
         run: |
@@ -66,43 +55,32 @@ jobs:
         env:
           CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
           DATA_DIR: ./MULTIWSDATA
+          NODE_ENV: production
           PORT: 8080
           SESSION_SECRET: ${{ github.sha }}
           ADMIN_USER: ${{ secrets.ADMIN_USER }}
           ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
         run: |
-          # Start Cloudflare Tunnel
           ./cloudflared tunnel run --token $CF_TUNNEL_TOKEN &
           CF_PID=$!
-          
-          # Start the app
+
           node src/server.js &
           APP_PID=$!
-          
+
           echo "Multichat dimulakan pada port 8080"
-          echo "PID Aplikasi: $APP_PID"
-          echo "PID Tunnel: $CF_PID"
-          
-          # Data sync diurus oleh aplikasi (triggerSync setiap perubahan)
-          # Tunggu 4 jam 55 minit, kemudian graceful shutdown
           sleep 17700
-          
+
           echo "Mematikan perkhidmatan..."
-          
-          # Hantar SIGTERM supaya app sync data sebelum tutup
           kill -SIGTERM $APP_PID 2>/dev/null
-          
-          # Tunggu app selesai sync (max 30 saat)
+
           for i in $(seq 1 30); do
             if ! kill -0 $APP_PID 2>/dev/null; then
-              echo "Aplikasi telah ditutup dengan selamat"
+              echo "Aplikasi ditutup dengan selamat"
               break
             fi
             sleep 1
           done
-          
-          # Paksa tutup jika masih hidup
+
           kill -9 $APP_PID 2>/dev/null || true
           kill $CF_PID 2>/dev/null
-          
-          echo "Multichat dimatikan. Akan dimulakan semula oleh jadual."
+          echo "Multichat dimatikan."

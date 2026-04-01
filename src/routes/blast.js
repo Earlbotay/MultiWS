@@ -1,139 +1,130 @@
 const express = require('express');
 const router = express.Router();
-const { requireAuth } = require('../auth');
-const blastService = require('../whatsapp/blast');
 const { db } = require('../database');
+const blastService = require('../whatsapp/blast');
 const { triggerSync } = require('../sync');
 
-router.use(requireAuth);
-
-// Senarai semua kerja blast untuk pengguna
+// Senarai blast jobs
 router.get('/', (req, res) => {
   try {
-    const jobs = blastService.getJobs(req.user.id);
-    res.json({ success: true, data: jobs });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
+
+    const jobs = db.prepare('SELECT * FROM blast_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+      .all(req.user.id, limit, offset);
+    const total = db.prepare('SELECT COUNT(*) as count FROM blast_jobs WHERE user_id = ?').get(req.user.id).count;
+
+    res.json({ success: true, data: jobs, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
   } catch (err) {
-    console.log(`[Blast Route] Ralat mendapatkan senarai blast: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Cipta kerja blast baru
+// Cipta blast baru (accept both field name formats)
 router.post('/', (req, res) => {
   try {
-    const { deviceId, name, message, mediaPath, delayMin, delayMax, phones } = req.body;
+    const { name, deviceId, message, phones } = req.body;
 
-    if (!deviceId || !name || !message || !phones || !Array.isArray(phones) || phones.length === 0) {
-      return res.status(400).json({ success: false, error: 'Sila lengkapkan semua maklumat yang diperlukan' });
+    // Accept both frontend field names and backend field names
+    const delayMin = req.body.delayMin || req.body.minDelay || 5;
+    const delayMax = req.body.delayMax || req.body.maxDelay || 15;
+
+    if (!name) return res.status(400).json({ success: false, error: 'Nama broadcast diperlukan' });
+    if (!deviceId) return res.status(400).json({ success: false, error: 'Sila pilih peranti' });
+    if (!message) return res.status(400).json({ success: false, error: 'Mesej diperlukan' });
+    if (!phones || !Array.isArray(phones) || phones.length === 0) {
+      return res.status(400).json({ success: false, error: 'Senarai nombor diperlukan' });
+    }
+
+    // Validate phone numbers
+    const validPhones = phones.map(p => p.replace(/[\s\-\+\(\)]/g, '')).filter(p => /^[1-9]\d{7,14}$/.test(p));
+    if (validPhones.length === 0) {
+      return res.status(400).json({ success: false, error: 'Tiada nombor telefon yang sah' });
     }
 
     const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, req.user.id);
-    if (!device) {
-      return res.status(403).json({ success: false, error: 'Peranti tidak dijumpai atau bukan milik anda' });
-    }
+    if (!device) return res.status(403).json({ success: false, error: 'Peranti tidak dijumpai' });
 
-    const job = blastService.createJob(
-      req.user.id,
-      deviceId,
-      name,
-      message,
-      mediaPath || null,
-      delayMin || 1,
-      delayMax || 5,
-      phones
-    );
-
-    triggerSync('blast: cipta kerja baru');
+    const job = blastService.createJob(req.user.id, Number(deviceId), name, message, validPhones, delayMin, delayMax);
+    triggerSync('blast: cipta baru');
     res.json({ success: true, data: job });
   } catch (err) {
-    console.log(`[Blast Route] Ralat mencipta blast: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Mulakan kerja blast
+// Detail blast job
+router.get('/:id', (req, res) => {
+  try {
+    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
+
+    const recipients = db.prepare('SELECT * FROM blast_recipients WHERE blast_id = ?').all(job.id);
+    res.json({ success: true, data: { ...job, recipients } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Start blast
 router.post('/:id/start', async (req, res) => {
   try {
     const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) {
-      return res.status(404).json({ success: false, error: 'Kerja blast tidak dijumpai' });
-    }
+    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
 
-    // Mulakan di latar belakang
     blastService.startJob(Number(req.params.id)).catch(err => {
-      console.log(`[Blast Route] Ralat menjalankan blast: ${err.message}`);
+      console.error(`[Blast] Ralat menjalankan blast: ${err.message}`);
     });
-
-    triggerSync('blast: mula kerja');
-    res.json({ success: true, data: { message: 'Kerja blast sedang dimulakan' } });
+    triggerSync('blast: mula');
+    res.json({ success: true, data: { message: 'Broadcast dimulakan' } });
   } catch (err) {
-    console.log(`[Blast Route] Ralat memulakan blast: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Jeda kerja blast
+// Pause blast
 router.post('/:id/pause', (req, res) => {
   try {
     const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) {
-      return res.status(404).json({ success: false, error: 'Kerja blast tidak dijumpai' });
-    }
+    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
 
     blastService.pauseJob(Number(req.params.id));
-    triggerSync('blast: jeda kerja');
-    res.json({ success: true, data: { message: 'Kerja blast telah dijeda' } });
+    triggerSync('blast: jeda');
+    res.json({ success: true, data: { message: 'Broadcast dijedakan' } });
   } catch (err) {
-    console.log(`[Blast Route] Ralat menjeda blast: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Batalkan kerja blast
+// Cancel blast
 router.post('/:id/cancel', (req, res) => {
   try {
     const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) {
-      return res.status(404).json({ success: false, error: 'Kerja blast tidak dijumpai' });
-    }
+    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
 
     blastService.cancelJob(Number(req.params.id));
-    triggerSync('blast: batal kerja');
-    res.json({ success: true, data: { message: 'Kerja blast telah dibatalkan' } });
+    triggerSync('blast: batal');
+    res.json({ success: true, data: { message: 'Broadcast dibatalkan' } });
   } catch (err) {
-    console.log(`[Blast Route] Ralat membatalkan blast: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Dapatkan butiran kerja blast
-router.get('/:id', (req, res) => {
-  try {
-    const job = blastService.getJob(Number(req.params.id));
-    if (!job || job.user_id !== req.user.id) {
-      return res.status(404).json({ success: false, error: 'Kerja blast tidak dijumpai' });
-    }
-
-    res.json({ success: true, data: job });
-  } catch (err) {
-    console.log(`[Blast Route] Ralat mendapatkan butiran blast: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Padam kerja blast
+// Delete blast
 router.delete('/:id', (req, res) => {
   try {
     const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) {
-      return res.status(404).json({ success: false, error: 'Kerja blast tidak dijumpai' });
-    }
+    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
 
-    blastService.deleteJob(Number(req.params.id));
-    triggerSync('blast: padam kerja');
-    res.json({ success: true, data: { message: 'Kerja blast telah dipadam' } });
+    if (job.status === 'running') {
+      blastService.cancelJob(Number(req.params.id));
+    }
+    db.prepare('DELETE FROM blast_recipients WHERE blast_id = ?').run(job.id);
+    db.prepare('DELETE FROM blast_jobs WHERE id = ?').run(job.id);
+    triggerSync('blast: padam');
+    res.json({ success: true, data: { message: 'Broadcast dipadam' } });
   } catch (err) {
-    console.log(`[Blast Route] Ralat memadam blast: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -3,328 +3,183 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Ruang Chat</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <title>Multichat - Sembang</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-
-  <div class="content">
-    <div class="content-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main-content">
+    <div class="page-header">
       <div>
-        <h1>Ruang Chat</h1>
-        <p>Hantar dan terima mesej WhatsApp</p>
+        <h1 class="page-title">💬 Sembang</h1>
+        <p class="page-subtitle">Lihat dan hantar mesej WhatsApp</p>
       </div>
-      <div class="form-group" style="margin-bottom:0; min-width: 220px;">
-        <select class="form-control" id="deviceSelect">
-          <option value="">-- Pilih Peranti --</option>
+      <div class="flex gap-3 items-center">
+        <label class="form-label" style="margin:0;">Peranti:</label>
+        <select class="form-select" id="deviceSelect" style="width:200px;" onchange="loadConversations()">
+          <option value="">Pilih peranti...</option>
         </select>
       </div>
     </div>
 
-    <div class="chat-layout" id="chatLayout">
-      <!-- Left: Conversation List -->
-      <div class="chat-sidebar" id="chatSidebar">
+    <div class="chat-layout" id="chatLayout" style="display:none;">
+      <div class="chat-sidebar">
         <div class="chat-sidebar-header">
-          <div class="chat-search-wrap">
-            <i class="fas fa-magnifying-glass"></i>
-            <input type="text" class="chat-search" id="chatSearch" placeholder="Cari perbualan...">
-          </div>
+          <input type="text" class="form-input" id="searchChat" placeholder="🔍 Cari perbualan..." oninput="filterConversations()">
         </div>
         <div class="chat-list" id="chatList">
-          <div class="empty-state" style="padding: 32px 16px;">
-            <i class="fas fa-comments" style="font-size:36px;"></i>
-            <p>Pilih peranti untuk melihat perbualan</p>
-          </div>
+          <div class="empty-state"><p class="text-muted">Tiada perbualan</p></div>
         </div>
       </div>
+      <div class="chat-main">
+        <div class="chat-messages" id="chatMessages">
+          <div class="empty-state">
+            <div class="empty-state-icon">💬</div>
+            <div class="empty-state-title">Pilih perbualan</div>
+            <p class="text-muted">Klik pada perbualan di sebelah kiri untuk melihat mesej</p>
+          </div>
+        </div>
+        <div class="chat-input-area" id="chatInputArea" style="display:none;">
+          <input type="text" class="form-input" id="messageInput" placeholder="Taip mesej..." onkeydown="if(event.key==='Enter')sendMessage()">
+          <button class="btn btn-primary" onclick="sendMessage()">Hantar</button>
+        </div>
+      </div>
+    </div>
 
-      <!-- Right: Messages -->
-      <div class="chat-main" id="chatMain">
-        <div class="chat-empty" id="chatEmpty">
-          <div style="text-align:center;">
-            <i class="fas fa-comments"></i>
-            <p>Pilih perbualan untuk mula bersembang</p>
-          </div>
-        </div>
-        <!-- Hidden by default: active chat view -->
-        <div id="activeChatView" style="display: none; flex-direction: column; flex: 1;">
-          <div class="chat-main-header">
-            <div class="chat-main-header-info">
-              <div class="chat-avatar" id="chatAvatar">?</div>
-              <div>
-                <h3 id="chatContactName">-</h3>
-                <span style="font-size:12px; color:#888;" id="chatContactPhone">-</span>
-              </div>
-            </div>
-          </div>
-          <div class="chat-messages" id="chatMessages"></div>
-          <div class="chat-input-area">
-            <input type="text" id="messageInput" placeholder="Taip mesej..." autocomplete="off">
-            <button id="sendBtn" onclick="sendMessage()" title="Hantar Mesej">
-              <i class="fas fa-paper-plane"></i>
-            </button>
-          </div>
-        </div>
-      </div>
+    <div id="noDevice" class="empty-state">
+      <div class="empty-state-icon">📱</div>
+      <div class="empty-state-title">Pilih Peranti</div>
+      <p class="text-muted">Pilih peranti dari dropdown di atas untuk melihat perbualan</p>
     </div>
   </div>
 
   <script src="/js/app.js"></script>
   <script>
-    let devices = [];
     let conversations = [];
     let currentDeviceId = null;
-    let currentConversation = null; // remoteJid
-    let messagePollTimer = null;
-    let conversationPollTimer = null;
+    let currentJid = null;
 
-    document.addEventListener('DOMContentLoaded', async () => {
-      await loadDevices();
-
-      // Device change
-      document.getElementById('deviceSelect').addEventListener('change', (e) => {
-        currentDeviceId = e.target.value;
-        currentConversation = null;
-        showEmptyChat();
-        if (currentDeviceId) {
-          loadConversations();
-          startConversationPoll();
-        } else {
-          stopAllPolls();
-          document.getElementById('chatList').innerHTML = `
-            <div class="empty-state" style="padding: 32px 16px;">
-              <i class="fas fa-comments" style="font-size:36px;"></i>
-              <p>Pilih peranti untuk melihat perbualan</p>
-            </div>`;
-        }
-      });
-
-      // Search filter
-      document.getElementById('chatSearch').addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase();
-        filterConversations(query);
-      });
-
-      // Send on Enter
-      document.getElementById('messageInput').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendMessage();
-        }
-      });
-    });
-
-    async function loadDevices() {
+    async function loadDeviceList() {
       try {
-        const data = await api.get('/api/devices');
-        devices = (data.data || data.devices || []).filter(d => d.status === 'connected');
-        const select = document.getElementById('deviceSelect');
-        const current = select.value;
-        select.innerHTML = '<option value="">-- Pilih Peranti --</option>' +
-          devices.map(d => `<option value="${d.id}" ${d.id === current ? 'selected' : ''}>${escapeHtml(d.name)}${d.phone ? ' (' + formatPhone(d.phone) + ')' : ''}</option>`).join('');
-      } catch (_) {}
+        const res = await api('/api/devices');
+        const devices = res.data || [];
+        const sel = document.getElementById('deviceSelect');
+        sel.innerHTML = '<option value="">Pilih peranti...</option>' +
+          devices.map(d => `<option value="${d.id}">${escapeHtml(d.name)} ${d.status === 'connected' ? '🟢' : '🔴'}</option>`).join('');
+      } catch (err) {
+        showToast('Gagal memuatkan senarai peranti', 'error');
+      }
     }
 
     async function loadConversations() {
-      if (!currentDeviceId) return;
+      const deviceId = document.getElementById('deviceSelect').value;
+      if (!deviceId) {
+        document.getElementById('chatLayout').style.display = 'none';
+        document.getElementById('noDevice').style.display = '';
+        return;
+      }
+
+      currentDeviceId = parseInt(deviceId);
+      document.getElementById('chatLayout').style.display = '';
+      document.getElementById('noDevice').style.display = 'none';
+
       try {
-        const data = await api.get(`/api/chat/conversations/${currentDeviceId}`);
-        conversations = data.data || data.conversations || [];
+        const res = await api(`/api/chat/conversations/${currentDeviceId}`);
+        conversations = res.data || [];
         renderConversations();
       } catch (err) {
-        document.getElementById('chatList').innerHTML = `
-          <div class="empty-state" style="padding: 32px 16px;">
-            <i class="fas fa-exclamation-triangle" style="font-size:36px;"></i>
-            <p>Gagal memuatkan perbualan</p>
-          </div>`;
+        showToast('Gagal memuatkan perbualan: ' + err.message, 'error');
       }
     }
 
     function renderConversations() {
+      const search = document.getElementById('searchChat').value.toLowerCase();
+      const filtered = conversations.filter(c =>
+        !search || (c.remote_jid && c.remote_jid.toLowerCase().includes(search))
+      );
+
       const list = document.getElementById('chatList');
-      const searchQuery = document.getElementById('chatSearch').value.toLowerCase();
-
-      let filtered = conversations;
-      if (searchQuery) {
-        filtered = conversations.filter(c => {
-          const name = (c.name || c.remoteJid || '').toLowerCase();
-          const phone = (c.remoteJid || '').toLowerCase();
-          return name.includes(searchQuery) || phone.includes(searchQuery);
-        });
-      }
-
       if (filtered.length === 0) {
-        list.innerHTML = `
-          <div class="empty-state" style="padding: 32px 16px;">
-            <i class="fas fa-comments" style="font-size:36px;"></i>
-            <p>${searchQuery ? 'Tiada hasil carian' : 'Tiada perbualan'}</p>
-          </div>`;
+        list.innerHTML = '<div class="empty-state"><p class="text-muted">Tiada perbualan</p></div>';
         return;
       }
 
       list.innerHTML = filtered.map(c => {
-        const name = c.name || formatPhone(c.remoteJid);
-        const initial = (c.name || c.remoteJid || '?')[0].toUpperCase();
-        const lastMsg = c.lastMessage || '';
-        const time = c.lastMessageTime ? timeAgo(c.lastMessageTime) : '';
-        const isActive = currentConversation === c.remoteJid;
-
+        const jid = c.remote_jid || '';
+        const name = jid.split('@')[0];
+        const isActive = currentJid === jid ? ' active' : '';
         return `
-          <div class="chat-item ${isActive ? 'active' : ''}" onclick="selectConversation('${c.remoteJid}', '${escapeHtml(name)}')">
-            <div class="chat-avatar">${initial}</div>
-            <div class="chat-item-info">
-              <div class="chat-item-name">${escapeHtml(name)}</div>
-              <div class="chat-item-last">${escapeHtml(lastMsg)}</div>
-            </div>
-            ${time ? `<div class="chat-item-time">${time}</div>` : ''}
+          <div class="chat-item${isActive}" onclick="openChat('${escapeHtml(jid)}')">
+            <span class="chat-item-time">${formatTime(c.last_time)}</span>
+            <div class="chat-item-name">${escapeHtml(name)}</div>
+            <div class="chat-item-preview">${escapeHtml(c.last_message || 'Tiada mesej')}</div>
           </div>`;
       }).join('');
     }
 
-    function filterConversations(query) {
+    function filterConversations() { renderConversations(); }
+
+    async function openChat(jid) {
+      currentJid = jid;
       renderConversations();
-    }
 
-    function showEmptyChat() {
-      document.getElementById('chatEmpty').style.display = 'flex';
-      document.getElementById('activeChatView').style.display = 'none';
-      stopMessagePoll();
-    }
-
-    function showActiveChat() {
-      document.getElementById('chatEmpty').style.display = 'none';
-      document.getElementById('activeChatView').style.display = 'flex';
-    }
-
-    async function selectConversation(remoteJid, name) {
-      currentConversation = remoteJid;
-      showActiveChat();
-      renderConversations(); // Update active state
-
-      const initial = (name || '?')[0].toUpperCase();
-      document.getElementById('chatAvatar').textContent = initial;
-      document.getElementById('chatContactName').textContent = name;
-      document.getElementById('chatContactPhone').textContent = formatPhone(remoteJid);
-
-      document.getElementById('chatMessages').innerHTML = `
-        <div class="loading-overlay">
-          <div class="spinner"></div>
-          <span>Memuatkan mesej...</span>
-        </div>`;
-
-      await loadMessages();
-      startMessagePoll();
-      document.getElementById('messageInput').focus();
-    }
-
-    async function loadMessages() {
-      if (!currentDeviceId || !currentConversation) return;
       try {
-        const data = await api.get(`/api/chat/messages/${currentDeviceId}/${encodeURIComponent(currentConversation)}`);
-        const messages = data.data || data.messages || [];
-        renderMessages(messages);
+        const res = await api(`/api/chat/messages/${currentDeviceId}/${encodeURIComponent(jid)}`);
+        const messages = res.data || [];
+
+        const messagesEl = document.getElementById('chatMessages');
+        if (messages.length === 0) {
+          messagesEl.innerHTML = '<div class="empty-state"><p class="text-muted">Tiada mesej lagi</p></div>';
+        } else {
+          messagesEl.innerHTML = messages.map(m => `
+            <div class="message-bubble ${m.is_outgoing ? 'outgoing' : 'incoming'}">
+              ${escapeHtml(m.message || '')}
+              <div class="message-time">${formatTime(m.timestamp)}</div>
+            </div>
+          `).join('');
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        document.getElementById('chatInputArea').style.display = '';
       } catch (err) {
-        document.getElementById('chatMessages').innerHTML = `
-          <div class="loading-overlay">
-            <i class="fas fa-exclamation-triangle" style="font-size:24px; color:#e74c3c;"></i>
-            <span>Gagal memuatkan mesej</span>
-          </div>`;
+        showToast('Gagal memuatkan mesej: ' + err.message, 'error');
       }
-    }
-
-    function renderMessages(messages) {
-      const container = document.getElementById('chatMessages');
-      if (messages.length === 0) {
-        container.innerHTML = `
-          <div style="text-align:center; padding:40px; color:#888;">
-            <p>Tiada mesej lagi. Mulakan perbualan!</p>
-          </div>`;
-        return;
-      }
-
-      container.innerHTML = messages.map(m => {
-        const isOut = m.fromMe || m.from_me;
-        const text = m.message || m.body || '';
-        const time = m.timestamp ? formatTime(m.timestamp) : '';
-        return `
-          <div class="bubble ${isOut ? 'bubble-out' : 'bubble-in'}">
-            <div>${escapeHtml(text)}</div>
-            <div class="bubble-time">${time}</div>
-          </div>`;
-      }).join('');
-
-      // Scroll to bottom
-      container.scrollTop = container.scrollHeight;
     }
 
     async function sendMessage() {
-      if (!currentDeviceId || !currentConversation) return;
       const input = document.getElementById('messageInput');
-      const text = input.value.trim();
-      if (!text) return;
+      const message = input.value.trim();
+      if (!message || !currentJid || !currentDeviceId) return;
 
       input.value = '';
-      input.focus();
-
-      // Optimistic UI: add bubble immediately
-      const container = document.getElementById('chatMessages');
-      const tempBubble = document.createElement('div');
-      tempBubble.className = 'bubble bubble-out';
-      tempBubble.innerHTML = `
-        <div>${escapeHtml(text)}</div>
-        <div class="bubble-time">Menghantar... <i class="fas fa-clock" style="font-size:10px;"></i></div>
-      `;
-      container.appendChild(tempBubble);
-      container.scrollTop = container.scrollHeight;
-
       try {
-        await api.post(`/api/chat/send/${currentDeviceId}`, {
-          to: currentConversation,
-          message: text
+        await api(`/api/chat/send/${currentDeviceId}`, {
+          method: 'POST',
+          body: JSON.stringify({ to: currentJid.split('@')[0], message })
         });
-        // Update the temp bubble
-        tempBubble.querySelector('.bubble-time').innerHTML = formatTime(new Date().toISOString());
+
+        // Add to UI optimistically
+        const messagesEl = document.getElementById('chatMessages');
+        messagesEl.innerHTML += `
+          <div class="message-bubble outgoing">
+            ${escapeHtml(message)}
+            <div class="message-time">baru je</div>
+          </div>`;
+        messagesEl.scrollTop = messagesEl.scrollHeight;
       } catch (err) {
-        tempBubble.querySelector('.bubble-time').innerHTML = `<span style="color:#e74c3c;">Gagal dihantar</span>`;
-        showToast(err.message || 'Gagal menghantar mesej', 'error');
+        showToast('Gagal menghantar: ' + err.message, 'error');
       }
     }
 
-    // ---- Polling ----
-    function startMessagePoll() {
-      stopMessagePoll();
-      messagePollTimer = setInterval(loadMessages, 5000);
-    }
+    // Init
+    (async () => {
+      if (!await initPage('chat')) return;
+      await loadDeviceList();
 
-    function stopMessagePoll() {
-      if (messagePollTimer) {
-        clearInterval(messagePollTimer);
-        messagePollTimer = null;
-      }
-    }
-
-    function startConversationPoll() {
-      stopConversationPoll();
-      conversationPollTimer = setInterval(loadConversations, 10000);
-    }
-
-    function stopConversationPoll() {
-      if (conversationPollTimer) {
-        clearInterval(conversationPollTimer);
-        conversationPollTimer = null;
-      }
-    }
-
-    function stopAllPolls() {
-      stopMessagePoll();
-      stopConversationPoll();
-    }
-
-    // Cleanup on leave
-    window.addEventListener('beforeunload', stopAllPolls);
+      onSSE('message-sent', () => {
+        if (currentJid && currentDeviceId) openChat(currentJid);
+      });
+    })();
   </script>
-
 </body>
 </html>

@@ -3,7 +3,6 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { requireAuth } = require('../auth');
 const statusService = require('../whatsapp/status');
 const config = require('../config');
 const { db } = require('../database');
@@ -35,7 +34,6 @@ const upload = multer({
   }
 });
 
-router.use(requireAuth);
 
 // Hantar status teks
 router.post('/text', async (req, res) => {

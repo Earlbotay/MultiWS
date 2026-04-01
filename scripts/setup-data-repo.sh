@@ -4,22 +4,20 @@
 
 echo "=== Penyediaan Repositori Data Multichat ==="
 
-DATA_DIR="${1:-.}/data"
-mkdir -p "$DATA_DIR/auth"
-mkdir -p "$DATA_DIR/uploads"  
+DATA_DIR="${1:-.}/MULTIWSDATA"
+mkdir -p "$DATA_DIR/sessions"
+mkdir -p "$DATA_DIR/uploads"
 mkdir -p "$DATA_DIR/db"
+mkdir -p "$DATA_DIR/logs"
 
-# Create .gitignore for data repo
 cat > "$DATA_DIR/.gitignore" << 'GITIGNORE'
-# Node
-node_modules/
-
-# Temp
-*.tmp
+*.db-wal
+*.db-shm
 *.log
+*.tmp
+node_modules/
 GITIGNORE
 
-# Create initial README for data repo
 cat > "$DATA_DIR/README.md" << 'README'
 # Data Multichat
 
@@ -28,9 +26,10 @@ Repositori ini menyimpan data untuk platform Multichat.
 ## Struktur
 
 ```
-auth/       - Sesi WhatsApp
+sessions/   - Sesi WhatsApp
 uploads/    - Fail media yang dimuat naik
 db/         - Pangkalan data SQLite
+logs/       - Log aplikasi
 ```
 
 ⚠️ JANGAN padam atau ubah fail dalam repositori ini secara manual.

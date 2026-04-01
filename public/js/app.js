@@ -1,268 +1,236 @@
-/* ============================================
-   Multichat - Common Application JavaScript
-   ============================================ */
+/* ===== Multichat Shared JavaScript ===== */
 
-// ---- API Helper ----
-const api = {
-  async _request(method, url, body, isFormData = false) {
-    const opts = {
-      method,
-      credentials: 'include',
-      headers: {}
-    };
-    if (body && !isFormData) {
-      opts.headers['Content-Type'] = 'application/json';
-      opts.body = JSON.stringify(body);
-    }
-    if (body && isFormData) {
-      opts.body = body;
-    }
-    try {
-      const res = await fetch(url, opts);
-      if (res.status === 401) {
-        window.location.href = '/index.html';
-        return null;
-      }
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || data.message || `Ralat ${res.status}`);
-      }
-      return data;
-    } catch (err) {
-      if (err.message && !err.message.startsWith('Ralat')) {
-        throw new Error(`Ralat: ${err.message}`);
-      }
-      throw err;
-    }
-  },
-  get(url) { return this._request('GET', url); },
-  post(url, data) { return this._request('POST', url, data); },
-  put(url, data) { return this._request('PUT', url, data); },
-  del(url) { return this._request('DELETE', url); },
-  upload(url, formData) { return this._request('POST', url, formData, true); }
-};
+// ===== UTILITIES =====
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
 
-// ---- Toast Notifications ----
-function _getToastContainer() {
-  let c = document.querySelector('.toast-container');
-  if (!c) {
-    c = document.createElement('div');
-    c.className = 'toast-container';
-    document.body.appendChild(c);
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 60000) return 'baru je';
+  if (diff < 3600000) return Math.floor(diff / 60000) + ' min lalu';
+  if (diff < 86400000) return d.toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('ms-MY', { day: '2-digit', month: 'short' });
+}
+
+function formatDate(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('ms-MY', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatPhone(phone) {
+  if (!phone) return 'Tiada nombor';
+  return '+' + phone;
+}
+
+// ===== TOAST NOTIFICATIONS =====
+let toastContainer = null;
+
+function showToast(message, type = 'info') {
+  if (!toastContainer) {
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'toast-container';
+    document.body.appendChild(toastContainer);
   }
-  return c;
-}
-
-function showToast(message, type = 'success') {
-  const container = _getToastContainer();
+  const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
   const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  const icons = { success: 'fa-check-circle', error: 'fa-times-circle', info: 'fa-info-circle' };
-  const iconClass = icons[type] || icons.info;
-  toast.innerHTML = `<i class="fas ${iconClass}"></i><span></span>`;
-  toast.querySelector('span').textContent = message;
-  container.appendChild(toast);
-
-  toast.addEventListener('click', () => _removeToast(toast));
-
-  setTimeout(() => _removeToast(toast), 4000);
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${escapeHtml(message)}</span>`;
+  toastContainer.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(100px)';
+    toast.style.transition = 'all 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
 }
 
-function _removeToast(toast) {
-  if (toast._removing) return;
-  toast._removing = true;
-  toast.classList.add('toast-out');
-  setTimeout(() => toast.remove(), 300);
+// ===== API HELPER =====
+async function api(url, options = {}) {
+  try {
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      credentials: 'same-origin',
+      ...options,
+    });
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || `Ralat ${res.status}`);
+    }
+    return data;
+  } catch (err) {
+    if (err.message.includes('log masuk') || err.message.includes('401')) {
+      window.location.href = '/';
+    }
+    throw err;
+  }
 }
 
-// ---- Confirmation Modal ----
-function showConfirm(title, message) {
+// ===== SSE (Server-Sent Events) =====
+let eventSource = null;
+const sseHandlers = {};
+
+function connectSSE() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/api/events');
+
+  eventSource.addEventListener('connected', () => {
+    console.log('[SSE] Bersambung');
+  });
+
+  eventSource.onerror = () => {
+    console.warn('[SSE] Terputus, mencuba semula...');
+    setTimeout(connectSSE, 5000);
+  };
+
+  // Register existing handlers
+  for (const [event, handlers] of Object.entries(sseHandlers)) {
+    for (const handler of handlers) {
+      eventSource.addEventListener(event, handler);
+    }
+  }
+}
+
+function onSSE(event, callback) {
+  if (!sseHandlers[event]) sseHandlers[event] = [];
+  const handler = (e) => {
+    try { callback(JSON.parse(e.data)); } catch (err) { console.error('[SSE] Ralat:', err); }
+  };
+  sseHandlers[event].push(handler);
+  if (eventSource) {
+    eventSource.addEventListener(event, handler);
+  }
+}
+
+// ===== AUTH STATE =====
+let currentUser = null;
+
+async function checkAuth() {
+  try {
+    const res = await api('/api/auth/me');
+    currentUser = res.data;
+    return currentUser;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function logout() {
+  try {
+    await api('/api/auth/logout', { method: 'POST' });
+  } catch (err) {}
+  window.location.href = '/';
+}
+
+// ===== SIDEBAR =====
+function loadSidebar(activePage) {
+  const sidebarEl = document.getElementById('sidebar');
+  if (!sidebarEl || sidebarEl.dataset.loaded === 'true') return;
+  sidebarEl.dataset.loaded = 'true';
+
+  const isAdmin = currentUser && currentUser.role === 'admin';
+
+  const navItems = [
+    { id: 'dashboard', icon: '📊', label: 'Dashboard', href: '/dashboard.html' },
+    { id: 'devices', icon: '📱', label: 'Peranti', href: '/device.html' },
+    { id: 'chat', icon: '💬', label: 'Sembang', href: '/chat.html' },
+    { id: 'blast', icon: '📢', label: 'Broadcast', href: '/blast.html' },
+    { id: 'warmer', icon: '🔥', label: 'Warmer', href: '/warmer.html' },
+    { id: 'checker', icon: '✅', label: 'Checker', href: '/checker.html' },
+    { id: 'autoreply', icon: '🤖', label: 'Auto Balas', href: '/autoreply.html' },
+    { id: 'status', icon: '📡', label: 'Status', href: '/status.html' },
+  ];
+
+  if (isAdmin) {
+    navItems.push({ divider: true });
+    navItems.push({ id: 'admin', icon: '🛡️', label: 'Panel Admin', href: '/admin.html' });
+  }
+
+  let navHtml = '';
+  for (const item of navItems) {
+    if (item.divider) {
+      navHtml += '<div class="nav-divider"></div>';
+      continue;
+    }
+    const active = activePage === item.id ? ' active' : '';
+    navHtml += `<a class="nav-item${active}" href="${item.href}">
+      <span class="icon">${item.icon}</span>
+      <span>${item.label}</span>
+    </a>`;
+  }
+
+  const initial = currentUser ? currentUser.username.charAt(0).toUpperCase() : '?';
+
+  sidebarEl.innerHTML = `
+    <div class="sidebar-header">
+      <div class="sidebar-logo">💬</div>
+      <span class="sidebar-title">Multichat</span>
+    </div>
+    <nav class="sidebar-nav">${navHtml}</nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="user-avatar">${initial}</div>
+        <div>
+          <div class="user-name">${escapeHtml(currentUser ? currentUser.username : 'Pengguna')}</div>
+          <div class="user-role">${escapeHtml(currentUser ? currentUser.role : '')}</div>
+        </div>
+      </div>
+      <button class="btn btn-outline btn-sm w-full mt-2" onclick="logout()">🚪 Log Keluar</button>
+    </div>
+  `;
+}
+
+// ===== MODAL HELPER =====
+function showModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+function hideModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('active');
+}
+
+// ===== CONFIRMATION DIALOG =====
+function confirmAction(message) {
   return new Promise((resolve) => {
-    // Remove existing confirm modals
-    document.querySelectorAll('.confirm-modal-overlay').forEach(el => el.remove());
-
     const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay show confirm-modal-overlay';
+    overlay.className = 'modal-overlay active';
     overlay.innerHTML = `
       <div class="modal">
         <div class="modal-header">
-          <h3>${escapeHtml(title)}</h3>
-          <button class="modal-close" data-action="cancel">&times;</button>
+          <h3 class="modal-title">⚠️ Pengesahan</h3>
         </div>
-        <div class="modal-body">
-          <p>${escapeHtml(message)}</p>
-        </div>
+        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">${escapeHtml(message)}</p>
         <div class="modal-footer">
-          <button class="btn btn-secondary" data-action="cancel">Batal</button>
-          <button class="btn btn-danger" data-action="confirm">Ya, Teruskan</button>
+          <button class="btn btn-outline" id="confirmNo">Batal</button>
+          <button class="btn btn-danger" id="confirmYes">Ya, Teruskan</button>
         </div>
       </div>
     `;
     document.body.appendChild(overlay);
-
-    overlay.addEventListener('click', (e) => {
-      const action = e.target.dataset.action;
-      if (action === 'confirm') {
-        overlay.remove();
-        resolve(true);
-      } else if (action === 'cancel') {
-        overlay.remove();
-        resolve(false);
-      }
-    });
-
-    overlay.querySelector('.modal').addEventListener('click', (e) => e.stopPropagation());
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
-        resolve(false);
-      }
-    });
+    overlay.querySelector('#confirmNo').onclick = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector('#confirmYes').onclick = () => { overlay.remove(); resolve(true); };
   });
 }
 
-// ---- Formatting Helpers ----
-function formatPhone(phone) {
-  if (!phone) return '-';
-  // Remove @s.whatsapp.net suffix
-  phone = phone.replace(/@.+/, '');
-  // Format: +60 12-345 6789
-  if (phone.startsWith('60') && phone.length >= 10) {
-    return `+${phone.slice(0, 2)} ${phone.slice(2, 4)}-${phone.slice(4, 7)} ${phone.slice(7)}`;
+// ===== PAGE INIT =====
+async function initPage(pageName) {
+  const user = await checkAuth();
+  if (!user) {
+    window.location.href = '/';
+    return null;
   }
-  return `+${phone}`;
+  loadSidebar(pageName);
+  connectSSE();
+  return user;
 }
-
-function formatTime(timestamp) {
-  if (!timestamp) return '-';
-  // Auto-detect: jika < 1 trilion, ia dalam saat → tukar ke milisaat
-  const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
-  const d = new Date(ms);
-  if (isNaN(d.getTime())) return '-';
-  const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday = d.toDateString() === yesterday.toDateString();
-
-  const time = d.toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-  if (isToday) return time;
-  if (isYesterday) return `Semalam, ${time}`;
-  return d.toLocaleDateString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric' }) + `, ${time}`;
-}
-
-function timeAgo(timestamp) {
-  if (!timestamp) return '-';
-  const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
-  const d = new Date(ms);
-  if (isNaN(d.getTime())) return '-';
-  const now = new Date();
-  const diff = Math.floor((now - d) / 1000);
-
-  if (diff < 30) return 'baru sahaja';
-  if (diff < 60) return `${diff} saat lalu`;
-  if (diff < 3600) return `${Math.floor(diff / 60)} minit lalu`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} jam lalu`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)} hari lalu`;
-  return d.toLocaleDateString('ms-MY', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-// ---- Sidebar ----
-function setActiveNav(page) {
-  document.querySelectorAll('.sidebar-nav a').forEach(a => {
-    a.classList.toggle('active', a.dataset.page === page);
-  });
-}
-
-function loadSidebar() {
-  const sidebar = document.createElement('div');
-  sidebar.className = 'sidebar';
-  sidebar.id = 'sidebar';
-  sidebar.innerHTML = `
-    <div class="sidebar-logo">
-      <i class="fab fa-whatsapp"></i>
-      <span>Multichat</span>
-    </div>
-    <nav class="sidebar-nav">
-      <a href="/dashboard.html" data-page="dashboard"><i class="fas fa-home"></i>Dashboard</a>
-      <a href="/device.html" data-page="device"><i class="fas fa-mobile-screen-button"></i>Peranti</a>
-      <a href="/chat.html" data-page="chat"><i class="fas fa-comments"></i>Ruang Chat</a>
-      <a href="/blast.html" data-page="blast"><i class="fas fa-paper-plane"></i>Broadcast</a>
-      <a href="/warmer.html" data-page="warmer"><i class="fas fa-fire"></i>Pemanasan</a>
-      <a href="/checker.html" data-page="checker"><i class="fas fa-magnifying-glass"></i>Semak Nombor</a>
-      <a href="/autoreply.html" data-page="autoreply"><i class="fas fa-robot"></i>Auto Balas</a>
-      <a href="/status.html" data-page="status"><i class="fas fa-circle-dot"></i>Status WA</a>
-      <div class="sidebar-divider"></div>
-      <a href="#" class="logout-btn" id="logoutBtn"><i class="fas fa-right-from-bracket"></i>Log Keluar</a>
-    </nav>
-  `;
-
-  // Toggle button for mobile
-  const toggleBtn = document.createElement('button');
-  toggleBtn.className = 'sidebar-toggle';
-  toggleBtn.id = 'sidebarToggle';
-  toggleBtn.innerHTML = '<i class="fas fa-bars"></i>';
-
-  // Overlay for mobile
-  const overlay = document.createElement('div');
-  overlay.className = 'sidebar-overlay';
-  overlay.id = 'sidebarOverlay';
-
-  document.body.prepend(overlay);
-  document.body.prepend(sidebar);
-  document.body.prepend(toggleBtn);
-
-  // Toggle sidebar
-  toggleBtn.addEventListener('click', () => {
-    sidebar.classList.toggle('open');
-    overlay.classList.toggle('show');
-  });
-
-  overlay.addEventListener('click', () => {
-    sidebar.classList.remove('open');
-    overlay.classList.remove('show');
-  });
-
-  // Logout handler
-  document.getElementById('logoutBtn').addEventListener('click', async (e) => {
-    e.preventDefault();
-    const ok = await showConfirm('Log Keluar', 'Adakah anda pasti mahu log keluar?');
-    if (ok) {
-      try {
-        await api.post('/api/auth/logout');
-      } catch (_) { /* ignore */ }
-      window.location.href = '/index.html';
-    }
-  });
-}
-
-// ---- Generic Modal helpers ----
-function openModal(id) {
-  const el = document.getElementById(id);
-  if (el) el.classList.add('show');
-}
-
-function closeModal(id) {
-  const el = document.getElementById(id);
-  if (el) el.classList.remove('show');
-}
-
-// ---- Escape HTML ----
-function escapeHtml(text) {
-  if (!text) return '';
-  const d = document.createElement('div');
-  d.textContent = text;
-  return d.innerHTML;
-}
-
-// ---- Init page on load ----
-document.addEventListener('DOMContentLoaded', () => {
-  // Only load sidebar if not login page
-  if (!document.body.classList.contains('login-page')) {
-    loadSidebar();
-    // Detect current page for active nav
-    const path = window.location.pathname.split('/').pop().replace('.html', '') || 'dashboard';
-    setActiveNav(path);
-  }
-});

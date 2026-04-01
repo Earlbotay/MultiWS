@@ -4,153 +4,140 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Multichat - Log Masuk</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <link rel="stylesheet" href="/css/style.css">
 </head>
-<body class="login-page">
+<body>
+  <div class="login-page">
+    <div class="login-card">
+      <!-- Long press logo 5s → admin login -->
+      <div class="login-logo" id="loginLogo">💬</div>
+      <h1 class="login-title">Multichat</h1>
+      <p class="login-subtitle">Platform automasi WhatsApp anda</p>
 
-  <div class="login-card">
-    <div class="login-logo">
-      <i class="fab fa-whatsapp"></i>
-      <h1>Multichat</h1>
-      <p>Platform Automasi WhatsApp</p>
-    </div>
-
-    <!-- Borang log masuk biasa -->
-    <form id="loginForm">
-      <div class="form-group">
-        <label for="username">Nama Pengguna</label>
-        <input type="text" id="username" class="form-control" placeholder="Masukkan nama pengguna" required autocomplete="username">
-      </div>
-      <div class="form-group">
-        <label for="password">Kata Laluan</label>
-        <input type="password" id="password" class="form-control" placeholder="Masukkan kata laluan" required autocomplete="current-password">
-      </div>
-      <button type="submit" class="btn btn-primary" id="loginBtn" style="width: 100%; justify-content: center; padding: 14px; font-size: 15px; margin-top: 8px;">
-        <i class="fas fa-right-to-bracket"></i>
-        <span>Log Masuk</span>
-      </button>
-    </form>
-
-    <!-- Borang log masuk pentadbir (tersembunyi — klik logo 5x untuk buka) -->
-    <div id="adminSection" style="display: none;">
-      <form id="adminLoginForm">
-        <div style="text-align: center; margin-bottom: 20px; padding: 10px 16px; background: linear-gradient(135deg, #e74c3c, #c0392b); border-radius: 10px; color: #fff;">
-          <i class="fas fa-shield-halved" style="font-size: 18px; margin-right: 6px;"></i>
-          <span style="font-weight: 600; font-size: 14px;">Mod Pentadbir</span>
+      <form id="loginForm" autocomplete="on">
+        <div class="form-group">
+          <label class="form-label">Nama Pengguna</label>
+          <input type="text" class="form-input" id="username" placeholder="Masukkan nama pengguna" required autofocus autocomplete="username">
         </div>
         <div class="form-group">
-          <label for="adminUsername">Nama Pentadbir</label>
-          <input type="text" id="adminUsername" class="form-control" placeholder="Masukkan nama pentadbir" required autocomplete="username">
+          <label class="form-label">Kata Laluan</label>
+          <input type="password" class="form-input" id="password" placeholder="Masukkan kata laluan" required autocomplete="current-password">
         </div>
-        <div class="form-group">
-          <label for="adminPassword">Kata Laluan</label>
-          <input type="password" id="adminPassword" class="form-control" placeholder="Masukkan kata laluan" required autocomplete="current-password">
-        </div>
-        <button type="submit" class="btn btn-danger" id="adminLoginBtn" style="width: 100%; justify-content: center; padding: 14px; font-size: 15px; margin-top: 8px;">
-          <i class="fas fa-shield-halved"></i>
-          <span>Log Masuk Pentadbir</span>
-        </button>
-        <p id="backToUserLogin" style="text-align: center; margin-top: 14px; font-size: 13px; color: #64748b; cursor: pointer;">
-          <i class="fas fa-arrow-left"></i> Kembali ke log masuk biasa
-        </p>
+        <button type="submit" class="login-btn" id="loginBtn">Log Masuk</button>
       </form>
+
+      <div class="login-footer">🔒 Sambungan selamat</div>
+    </div>
+  </div>
+
+  <!-- Admin Login Modal (triggered by 5s long press on logo) -->
+  <div class="admin-login-overlay" id="adminOverlay">
+    <div class="admin-login-card">
+      <div class="admin-login-icon">🛡️</div>
+      <h2 class="admin-login-title">Log Masuk Pentadbir</h2>
+      <form id="adminLoginForm">
+        <div class="form-group">
+          <label class="form-label">Nama Pengguna Admin</label>
+          <input type="text" class="form-input" id="adminUsername" placeholder="Admin" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Kata Laluan Admin</label>
+          <input type="password" class="form-input" id="adminPassword" placeholder="Kata laluan" autocomplete="current-password">
+        </div>
+        <button type="submit" class="login-btn" style="background: linear-gradient(135deg, #4f46e5, #7c3aed);">🛡️ Masuk sebagai Admin</button>
+      </form>
+      <p class="login-footer" style="cursor:pointer;" onclick="document.getElementById('adminOverlay').classList.remove('active')">Batal</p>
     </div>
   </div>
 
   <script src="/js/app.js"></script>
   <script>
-    // ---- Log masuk biasa ----
+    // Check if already logged in
+    (async () => {
+      try {
+        const res = await api('/api/auth/me');
+        if (res.data) window.location.href = '/dashboard.html';
+      } catch (e) {}
+    })();
+
+    // === Long press logo 5 seconds → show admin login ===
+    let pressTimer = null;
+    let pressStart = 0;
+    const logo = document.getElementById('loginLogo');
+
+    function startPress(e) {
+      e.preventDefault();
+      pressStart = Date.now();
+      logo.classList.add('pressed');
+      pressTimer = setTimeout(() => {
+        logo.classList.remove('pressed');
+        document.getElementById('adminOverlay').classList.add('active');
+        document.getElementById('adminUsername').focus();
+      }, 5000);
+    }
+
+    function endPress() {
+      clearTimeout(pressTimer);
+      logo.classList.remove('pressed');
+    }
+
+    logo.addEventListener('mousedown', startPress);
+    logo.addEventListener('mouseup', endPress);
+    logo.addEventListener('mouseleave', endPress);
+    logo.addEventListener('touchstart', startPress, { passive: false });
+    logo.addEventListener('touchend', endPress);
+    logo.addEventListener('touchcancel', endPress);
+
+    // User login
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('loginBtn');
-      const username = document.getElementById('username').value.trim();
-      const password = document.getElementById('password').value;
-
-      if (!username || !password) {
-        showToast('Sila masukkan nama pengguna dan kata laluan', 'error');
-        return;
-      }
-
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner spinner-sm"></span><span>Sedang log masuk...</span>';
+      btn.textContent = 'Sedang log masuk...';
 
       try {
-        const res = await api.post('/api/auth/login', { username, password });
-        showToast('Berjaya log masuk!', 'success');
-        setTimeout(() => {
-          window.location.href = '/dashboard.html';
-        }, 500);
+        const res = await api('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            username: document.getElementById('username').value,
+            password: document.getElementById('password').value
+          })
+        });
+        showToast('Log masuk berjaya!', 'success');
+        setTimeout(() => window.location.href = '/dashboard.html', 500);
       } catch (err) {
-        showToast(err.message || 'Nama pengguna atau kata laluan salah', 'error');
+        showToast(err.message, 'error');
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-right-to-bracket"></i><span>Log Masuk</span>';
+        btn.textContent = 'Log Masuk';
       }
     });
 
-    // ---- Log masuk pentadbir (tersembunyi) ----
+    // Admin login
     document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = document.getElementById('adminLoginBtn');
-      const username = document.getElementById('adminUsername').value.trim();
-      const password = document.getElementById('adminPassword').value;
-
-      if (!username || !password) {
-        showToast('Sila masukkan nama pengguna dan kata laluan', 'error');
-        return;
-      }
-
+      const btn = e.target.querySelector('button');
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner spinner-sm"></span><span>Mengesahkan...</span>';
 
       try {
-        const res = await api.post('/api/auth/admin-login', { username, password });
-        showToast('Berjaya log masuk sebagai pentadbir!', 'success');
-        setTimeout(() => {
-          window.location.href = '/dashboard.html';
-        }, 500);
+        const res = await api('/api/auth/admin-login', {
+          method: 'POST',
+          body: JSON.stringify({
+            username: document.getElementById('adminUsername').value,
+            password: document.getElementById('adminPassword').value
+          })
+        });
+        showToast('Log masuk admin berjaya!', 'success');
+        setTimeout(() => window.location.href = '/admin.html', 500);
       } catch (err) {
-        showToast(err.message || 'Akses ditolak', 'error');
+        showToast(err.message, 'error');
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-shield-halved"></i><span>Log Masuk Pentadbir</span>';
       }
     });
 
-    // ---- Klik logo 5x untuk buka admin mode ----
-    let _lc = 0, _lt = null;
-    document.querySelector('.login-logo').addEventListener('click', () => {
-      _lc++;
-      clearTimeout(_lt);
-      _lt = setTimeout(() => { _lc = 0; }, 2000);
-      if (_lc >= 5) {
-        _lc = 0;
-        toggleAdminMode();
-      }
+    // Close admin overlay on outside click
+    document.getElementById('adminOverlay').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.remove('active');
     });
-
-    function toggleAdminMode() {
-      const userForm = document.getElementById('loginForm');
-      const adminSection = document.getElementById('adminSection');
-      if (adminSection.style.display === 'none') {
-        userForm.style.display = 'none';
-        adminSection.style.display = 'block';
-      } else {
-        userForm.style.display = 'block';
-        adminSection.style.display = 'none';
-      }
-    }
-
-    document.getElementById('backToUserLogin').addEventListener('click', toggleAdminMode);
-
-    // If already logged in, redirect
-    (async () => {
-      try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' });
-        if (res.ok) window.location.href = '/dashboard.html';
-      } catch (_) {}
-    })();
   </script>
-
 </body>
 </html>

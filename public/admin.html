@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multichat - Panel Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main-content">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">🛡️ Panel Pentadbir</h1>
+        <p class="page-subtitle">Pantau dan urus semua pengguna dan peranti</p>
+      </div>
+      <button class="btn btn-primary" onclick="showModal('addUserModal')">+ Cipta Pengguna</button>
+    </div>
+
+    <!-- Admin Stats -->
+    <div class="stats-grid" id="adminStats">
+      <div class="stat-card">
+        <div class="stat-icon purple">👥</div>
+        <div>
+          <div class="stat-value" id="sTotalUsers">-</div>
+          <div class="stat-label">Jumlah Pengguna</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">📱</div>
+        <div>
+          <div class="stat-value" id="sTotalDevices">-</div>
+          <div class="stat-label">Jumlah Peranti</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">🟢</div>
+        <div>
+          <div class="stat-value" id="sConnectedDevices">-</div>
+          <div class="stat-label">Peranti Aktif</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon yellow">💬</div>
+        <div>
+          <div class="stat-value" id="sTotalMessages">-</div>
+          <div class="stat-label">Jumlah Mesej</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">📢</div>
+        <div>
+          <div class="stat-value" id="sRunningBlasts">-</div>
+          <div class="stat-label">Broadcast Berjalan</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">🤖</div>
+        <div>
+          <div class="stat-value" id="sTotalAutoReplies">-</div>
+          <div class="stat-label">Auto Balas Aktif</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('users', this)">👥 Pengguna</button>
+      <button class="tab" onclick="switchTab('devices', this)">📱 Semua Peranti</button>
+    </div>
+
+    <!-- Users Tab -->
+    <div id="tab-users">
+      <div class="admin-search">
+        <input type="text" class="form-input" id="searchUsers" placeholder="🔍 Cari pengguna..." oninput="searchUsersDebounced()">
+      </div>
+      <div id="usersList">
+        <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
+      </div>
+    </div>
+
+    <!-- Devices Tab -->
+    <div id="tab-devices" style="display:none;">
+      <div id="allDevicesList">
+        <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Detail Modal -->
+  <div class="modal-overlay" id="userDetailModal">
+    <div class="modal" style="max-width:700px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="userDetailTitle">Butiran Pengguna</h3>
+        <button class="modal-close" onclick="hideModal('userDetailModal')">✕</button>
+      </div>
+      <div id="userDetailContent">
+        <div class="loading-overlay"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add User Modal -->
+  <div class="modal-overlay" id="addUserModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">👤 Cipta Pengguna Baru</h3>
+        <button class="modal-close" onclick="hideModal('addUserModal')">✕</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nama Pengguna</label>
+        <input type="text" class="form-input" id="newUsername" placeholder="Nama pengguna">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Kata Laluan (min. 6 aksara)</label>
+        <input type="password" class="form-input" id="newPassword" placeholder="Kata laluan">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Peranan</label>
+        <select class="form-select" id="newRole">
+          <option value="user">Pengguna Biasa</option>
+          <option value="admin">Pentadbir</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="hideModal('addUserModal')">Batal</button>
+        <button class="btn btn-primary" onclick="createUser()">Cipta Pengguna</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script>
+    let searchTimeout = null;
+
+    function switchTab(tab, btn) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-users').style.display = tab === 'users' ? '' : 'none';
+      document.getElementById('tab-devices').style.display = tab === 'devices' ? '' : 'none';
+      if (tab === 'devices') loadAllDevices();
+    }
+
+    async function loadAdminStats() {
+      try {
+        const res = await api('/api/admin/stats');
+        const s = res.data;
+        document.getElementById('sTotalUsers').textContent = s.totalUsers || 0;
+        document.getElementById('sTotalDevices').textContent = s.totalDevices || 0;
+        document.getElementById('sConnectedDevices').textContent = s.connectedDevices || 0;
+        document.getElementById('sTotalMessages').textContent = s.totalMessages || 0;
+        document.getElementById('sRunningBlasts').textContent = s.runningBlasts || 0;
+        document.getElementById('sTotalAutoReplies').textContent = s.totalAutoReplies || 0;
+      } catch (err) {
+        showToast('Gagal memuatkan statistik admin', 'error');
+      }
+    }
+
+    async function loadUsers(search = '') {
+      try {
+        const res = await api(`/api/admin/users?search=${encodeURIComponent(search)}`);
+        const users = res.data || [];
+
+        if (users.length === 0) {
+          document.getElementById('usersList').innerHTML = '<div class="empty-state"><p class="text-muted">Tiada pengguna dijumpai</p></div>';
+          return;
+        }
+
+        document.getElementById('usersList').innerHTML = `
+          <div class="table-container">
+            <table>
+              <thead><tr><th>Pengguna</th><th>Peranan</th><th>Peranti</th><th>Tersambung</th><th>Mesej</th><th>Didaftarkan</th><th>Tindakan</th></tr></thead>
+              <tbody>${users.map(u => `
+                <tr>
+                  <td>
+                    <strong>${escapeHtml(u.username)}</strong>
+                  </td>
+                  <td><span class="badge badge-${u.role === 'admin' ? 'info' : 'muted'}">${u.role}</span></td>
+                  <td>${u.deviceCount}</td>
+                  <td><span class="badge badge-success">${u.connectedCount}</span></td>
+                  <td>${u.messageCount}</td>
+                  <td class="text-muted text-sm">${formatDate(u.created_at)}</td>
+                  <td>
+                    <div class="flex gap-2">
+                      <button class="btn btn-outline btn-sm" onclick="viewUser(${u.id})">👁 Lihat</button>
+                      <button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${escapeHtml(u.username)}')">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}</tbody>
+            </table>
+          </div>`;
+      } catch (err) {
+        showToast('Gagal memuatkan pengguna: ' + err.message, 'error');
+      }
+    }
+
+    function searchUsersDebounced() {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        loadUsers(document.getElementById('searchUsers').value);
+      }, 300);
+    }
+
+    async function viewUser(userId) {
+      showModal('userDetailModal');
+      document.getElementById('userDetailContent').innerHTML = '<div class="loading-overlay"><div class="spinner"></div></div>';
+
+      try {
+        const res = await api(`/api/admin/users/${userId}`);
+        const u = res.data;
+
+        document.getElementById('userDetailTitle').textContent = `👤 ${u.username}`;
+        document.getElementById('userDetailContent').innerHTML = `
+          <div class="user-detail-grid">
+            <div class="stat-card">
+              <div class="stat-icon purple">👤</div>
+              <div><div class="stat-value" style="font-size:18px;">${escapeHtml(u.username)}</div><div class="stat-label">${u.role}</div></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon blue">📱</div>
+              <div><div class="stat-value" style="font-size:18px;">${u.devices.length}</div><div class="stat-label">Peranti</div></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon green">💬</div>
+              <div><div class="stat-value" style="font-size:18px;">${u.messageCount}</div><div class="stat-label">Mesej</div></div>
+            </div>
+          </div>
+
+          ${u.devices.length > 0 ? `
+            <h4 style="margin-bottom:12px;">📱 Peranti</h4>
+            <div class="table-container" style="margin-bottom:16px;">
+              <table>
+                <thead><tr><th>Nama</th><th>Nombor</th><th>Status</th></tr></thead>
+                <tbody>${u.devices.map(d => `
+                  <tr>
+                    <td>${escapeHtml(d.name)}</td>
+                    <td>${d.phone ? formatPhone(d.phone) : '-'}</td>
+                    <td><span class="badge badge-${d.status === 'connected' ? 'success' : 'danger'}">${d.status}</span></td>
+                  </tr>
+                `).join('')}</tbody>
+              </table>
+            </div>
+          ` : '<p class="text-muted">Tiada peranti</p>'}
+
+          ${u.blasts && u.blasts.length > 0 ? `
+            <h4 style="margin-bottom:12px;">📢 Broadcast Terkini</h4>
+            <div class="table-container">
+              <table>
+                <thead><tr><th>Nama</th><th>Status</th><th>Dicipta</th></tr></thead>
+                <tbody>${u.blasts.map(b => `
+                  <tr>
+                    <td>${escapeHtml(b.name)}</td>
+                    <td><span class="badge badge-${b.status === 'completed' ? 'success' : 'muted'}">${b.status}</span></td>
+                    <td class="text-sm text-muted">${formatDate(b.created_at)}</td>
+                  </tr>
+                `).join('')}</tbody>
+              </table>
+            </div>
+          ` : ''}
+        `;
+      } catch (err) {
+        document.getElementById('userDetailContent').innerHTML = `<p style="color:var(--danger);">Gagal: ${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    async function createUser() {
+      const username = document.getElementById('newUsername').value.trim();
+      const password = document.getElementById('newPassword').value;
+      const role = document.getElementById('newRole').value;
+
+      if (!username) return showToast('Sila masukkan nama pengguna', 'warning');
+      if (!password || password.length < 6) return showToast('Kata laluan mestilah sekurang-kurangnya 6 aksara', 'warning');
+
+      try {
+        await api('/api/admin/users', {
+          method: 'POST',
+          body: JSON.stringify({ username, password, role })
+        });
+        hideModal('addUserModal');
+        document.getElementById('newUsername').value = '';
+        document.getElementById('newPassword').value = '';
+        showToast(`Pengguna "${username}" berjaya dicipta!`, 'success');
+        loadUsers();
+        loadAdminStats();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    async function deleteUser(id, username) {
+      if (!await confirmAction(`Padam pengguna "${username}" dan semua data berkaitan?`)) return;
+      try {
+        await api(`/api/admin/users/${id}`, { method: 'DELETE' });
+        showToast(`Pengguna "${username}" dipadam`, 'success');
+        loadUsers();
+        loadAdminStats();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    async function loadAllDevices() {
+      try {
+        const res = await api('/api/admin/devices');
+        const devices = res.data || [];
+
+        if (devices.length === 0) {
+          document.getElementById('allDevicesList').innerHTML = '<div class="empty-state"><p class="text-muted">Tiada peranti</p></div>';
+          return;
+        }
+
+        document.getElementById('allDevicesList').innerHTML = `
+          <div class="table-container">
+            <table>
+              <thead><tr><th>Peranti</th><th>Pemilik</th><th>Nombor</th><th>Status</th><th>Dicipta</th></tr></thead>
+              <tbody>${devices.map(d => `
+                <tr>
+                  <td><strong>${escapeHtml(d.name)}</strong></td>
+                  <td>${escapeHtml(d.owner_username)}</td>
+                  <td class="text-muted">${d.phone ? formatPhone(d.phone) : '-'}</td>
+                  <td><span class="badge badge-${d.status === 'connected' ? 'success' : d.status === 'connecting' ? 'warning' : 'danger'}">${d.status}</span></td>
+                  <td class="text-muted text-sm">${formatDate(d.created_at)}</td>
+                </tr>
+              `).join('')}</tbody>
+            </table>
+          </div>`;
+      } catch (err) {
+        showToast('Gagal memuatkan peranti: ' + err.message, 'error');
+      }
+    }
+
+    // Init
+    (async () => {
+      const user = await initPage('admin');
+      if (!user) return;
+      if (user.role !== 'admin') {
+        showToast('Akses ditolak. Anda bukan pentadbir.', 'error');
+        setTimeout(() => window.location.href = '/dashboard.html', 1500);
+        return;
+      }
+      await Promise.all([loadAdminStats(), loadUsers()]);
+
+      onSSE('device-status', () => {
+        loadAdminStats();
+        loadAllDevices();
+      });
+    })();
+  </script>
+</body>
+</html>

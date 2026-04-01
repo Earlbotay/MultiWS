@@ -1,7 +1,6 @@
 const path = require('path');
 const fs = require('fs');
 
-// Muat pembolehubah persekitaran dari fail .env
 require('dotenv').config();
 
 const config = {
@@ -15,36 +14,25 @@ const config = {
   DATA_DIR: process.env.DATA_DIR || path.join(process.cwd(), 'MULTIWSDATA'),
   DB_PATH: path.join(process.env.DATA_DIR || path.join(process.cwd(), 'MULTIWSDATA'), 'db', 'multichat.db'),
   SESSIONS_DIR: path.join(process.env.DATA_DIR || path.join(process.cwd(), 'MULTIWSDATA'), 'sessions'),
+  LOG_DIR: path.join(process.env.DATA_DIR || path.join(process.cwd(), 'MULTIWSDATA'), 'logs'),
 };
 
-// Pastikan direktori data dan sesi wujud
-try {
-  fs.mkdirSync(config.DATA_DIR, { recursive: true });
-  console.log('[Config] Direktori data disahkan:', config.DATA_DIR);
-} catch (err) {
-  console.error('[Config] Gagal mencipta direktori data:', err.message);
+// Pastikan direktori wujud
+const dirs = [config.DATA_DIR, config.SESSIONS_DIR, path.join(config.DATA_DIR, 'db'), config.LOG_DIR];
+for (const dir of dirs) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    console.error(`[Config] Gagal mencipta direktori ${dir}: ${err.message}`);
+  }
 }
+console.log('[Config] Direktori data disahkan:', config.DATA_DIR);
 
-try {
-  fs.mkdirSync(config.SESSIONS_DIR, { recursive: true });
-  console.log('[Config] Direktori sesi disahkan:', config.SESSIONS_DIR);
-} catch (err) {
-  console.error('[Config] Gagal mencipta direktori sesi:', err.message);
-}
-
-try {
-  fs.mkdirSync(path.join(config.DATA_DIR, 'db'), { recursive: true });
-  console.log('[Config] Direktori db disahkan');
-} catch (err) {
-  console.error('[Config] Gagal mencipta direktori db:', err.message);
-}
-
-// Amaran keselamatan
 if (config.SESSION_SECRET === 'rahsia-sesi-lalai-multichat') {
-  console.warn('⚠️  [AMARAN KESELAMATAN] SESSION_SECRET tidak ditetapkan! Sila set dalam .env');
+  console.warn('\u26a0\ufe0f  [AMARAN KESELAMATAN] SESSION_SECRET tidak ditetapkan! Sila set dalam .env');
 }
 if (config.ADMIN_PASS === 'admin123') {
-  console.warn('⚠️  [AMARAN KESELAMATAN] Kata laluan admin lalai digunakan! Sila tukar segera.');
+  console.warn('\u26a0\ufe0f  [AMARAN KESELAMATAN] Kata laluan admin lalai digunakan! Sila tukar segera.');
 }
 
 module.exports = config;

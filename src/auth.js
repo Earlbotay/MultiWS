@@ -1,9 +1,7 @@
 /**
- * Middleware pengesahan — pastikan pengguna telah log masuk
- * Menyokong kedua-dua cookie bertandatangan dan sesi Express
+ * Middleware pengesahan
  */
 function requireAuth(req, res, next) {
-  // Cuba dapatkan pengguna dari cookie bertandatangan terlebih dahulu
   if (req.signedCookies && req.signedCookies.auth) {
     try {
       const user = JSON.parse(req.signedCookies.auth);
@@ -11,24 +9,30 @@ function requireAuth(req, res, next) {
         req.user = user;
         return next();
       }
-    } catch (e) {
-      // Cookie tidak sah, teruskan ke semakan sesi
-    }
+    } catch (e) {}
   }
 
-  // Fallback ke sesi Express (keserasian dengan kod sedia ada)
   if (req.session && req.session.user) {
     req.user = req.session.user;
     return next();
   }
 
-  // Jika permintaan API, kembalikan 401
   if (req.path.startsWith('/api/') || req.xhr || req.headers.accept === 'application/json') {
     return res.status(401).json({ success: false, error: 'Sila log masuk terlebih dahulu.' });
   }
-
-  // Jika permintaan halaman biasa, alihkan ke halaman log masuk
   return res.redirect('/');
 }
 
-module.exports = { requireAuth };
+/**
+ * Middleware pentadbir - pastikan pengguna mempunyai role admin
+ */
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user && req.user.role === 'admin') {
+      return next();
+    }
+    return res.status(403).json({ success: false, error: 'Akses ditolak. Anda bukan pentadbir.' });
+  });
+}
+
+module.exports = { requireAuth, requireAdmin };
