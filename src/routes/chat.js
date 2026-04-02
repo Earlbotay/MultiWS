@@ -1,130 +1,110 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
-const waManager = require('../whatsapp/manager');
-const { triggerSync } = require('../sync');
-const events = require('../events');
+const db = require('../database');
+const WAManager = require('../whatsapp/manager');
 
-function verifyDeviceOwnership(deviceId, userId) {
-  return db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, userId) || null;
+// Helper: format phone to JID
+function formatJid(phone) {
+  // Remove all non-digit characters
+  let cleaned = phone.replace(/[^0-9]/g, '');
+  // Ensure it ends with @s.whatsapp.net
+  if (!cleaned.includes('@')) {
+    return cleaned + '@s.whatsapp.net';
+  }
+  return cleaned;
 }
 
-// Perbualan dengan pagination
-router.get('/conversations/:deviceId', (req, res) => {
+// GET /:deviceId/conversations — List conversations
+router.get('/:deviceId/conversations', (req, res) => {
   try {
-    const deviceId = parseInt(req.params.deviceId);
-    const device = verifyDeviceOwnership(deviceId, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    const { deviceId } = req.params;
 
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = (page - 1) * limit;
+    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, req.user.id);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    }
 
     const conversations = db.prepare(`
-      SELECT remote_jid,
-             MAX(timestamp) as last_time,
-             (SELECT message FROM messages m2
-              WHERE m2.device_id = ? AND m2.remote_jid = messages.remote_jid
-              ORDER BY timestamp DESC LIMIT 1) as last_message,
-             COUNT(*) as total_messages
+      SELECT 
+        remote_jid,
+        message AS last_message,
+        timestamp AS last_time
       FROM messages
-      WHERE device_id = ?
-      GROUP BY remote_jid
-      ORDER BY last_time DESC
-      LIMIT ? OFFSET ?
-    `).all(deviceId, deviceId, limit, offset);
+      WHERE device_id = ? AND id IN (
+        SELECT MAX(id) FROM messages WHERE device_id = ? GROUP BY remote_jid
+      )
+      ORDER BY timestamp DESC
+    `).all(deviceId, deviceId);
 
     res.json({ success: true, data: conversations });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('List conversations error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Mesej dengan pagination
-router.get('/messages/:deviceId/:remoteJid', (req, res) => {
+// GET /:deviceId/messages/:jid — Messages in conversation with pagination
+router.get('/:deviceId/messages/:jid', (req, res) => {
   try {
-    const deviceId = parseInt(req.params.deviceId);
-    const remoteJid = decodeURIComponent(req.params.remoteJid);
-    const device = verifyDeviceOwnership(deviceId, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    const { deviceId, jid } = req.params;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
 
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = parseInt(req.query.offset) || 0;
-
-    const messages = db.prepare(`
-      SELECT * FROM messages
-      WHERE device_id = ? AND remote_jid = ?
-      ORDER BY timestamp DESC
-      LIMIT ? OFFSET ?
-    `).all(deviceId, remoteJid, limit, offset);
-
-    res.json({ success: true, data: messages.reverse() });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Hantar mesej
-router.post('/send/:deviceId', async (req, res) => {
-  try {
-    const deviceId = parseInt(req.params.deviceId);
-    const device = verifyDeviceOwnership(deviceId, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
-
-    const { to, message, type } = req.body;
-    if (!to || !message) return res.status(400).json({ success: false, error: 'Penerima dan mesej diperlukan' });
-
-    const jid = waManager.formatJid(to);
-    let content;
-
-    switch (type) {
-      case 'image':
-        content = { image: { url: message }, caption: req.body.caption || '' };
-        break;
-      case 'document':
-        content = { document: { url: message }, mimetype: req.body.mimetype || 'application/octet-stream', fileName: req.body.fileName || 'document' };
-        break;
-      case 'video':
-        content = { video: { url: message }, caption: req.body.caption || '' };
-        break;
-      case 'audio':
-        content = { audio: { url: message }, mimetype: 'audio/mpeg' };
-        break;
-      default:
-        content = { text: message };
-        break;
+    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, req.user.id);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
     }
 
-    const result = await waManager.sendMessage(deviceId, jid, content);
-    triggerSync('chat: hantar mesej');
-    events.emit(req.user.id, 'message-sent', { deviceId, to: jid });
-    res.json({ success: true, data: { messageId: result?.key?.id, to: jid, message } });
+    const total = db.prepare('SELECT COUNT(*) AS count FROM messages WHERE device_id = ? AND remote_jid = ?').get(deviceId, jid).count;
+
+    const messages = db.prepare(`
+      SELECT * FROM messages 
+      WHERE device_id = ? AND remote_jid = ? 
+      ORDER BY timestamp DESC 
+      LIMIT ? OFFSET ?
+    `).all(deviceId, jid, limit, offset);
+
+    res.json({
+      success: true,
+      data: { messages, page, limit, total }
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: `Gagal menghantar mesej: ${err.message}` });
+    console.error('List messages error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Kenalan
-router.get('/contacts/:deviceId', (req, res) => {
+// POST /:deviceId/send — Send message
+router.post('/:deviceId/send', async (req, res) => {
   try {
-    const deviceId = parseInt(req.params.deviceId);
-    const device = verifyDeviceOwnership(deviceId, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    const { deviceId } = req.params;
+    const { to, message } = req.body;
 
-    const contacts = db.prepare(`
-      SELECT sender,
-        MAX(remote_jid) as remote_jid,
-        COUNT(*) as message_count,
-        MAX(timestamp) as last_seen
-      FROM messages
-      WHERE device_id = ? AND is_outgoing = 0
-      GROUP BY sender
-      ORDER BY last_seen DESC
-    `).all(deviceId);
+    if (!to || !message) {
+      return res.status(400).json({ success: false, error: 'Nombor penerima dan mesej diperlukan' });
+    }
 
-    res.json({ success: true, data: contacts });
+    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, req.user.id);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    }
+
+    const jid = formatJid(to);
+    const manager = WAManager.getInstance();
+    await manager.sendMessage(parseInt(deviceId), jid, message);
+
+    // Save to messages table
+    const timestamp = Math.floor(Date.now() / 1000);
+    db.prepare(`
+      INSERT INTO messages (device_id, remote_jid, from_me, message, timestamp, status) 
+      VALUES (?, ?, 1, ?, ?, 'sent')
+    `).run(deviceId, jid, message, timestamp);
+
+    res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Send message error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Ralat server' });
   }
 });
 

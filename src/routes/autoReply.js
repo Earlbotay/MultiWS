@@ -1,122 +1,155 @@
 const express = require('express');
 const router = express.Router();
-const autoReplyService = require('../whatsapp/autoReply');
-const { db } = require('../database');
-const { triggerSync } = require('../sync');
+const db = require('../database');
 
-
-// Senarai peraturan auto-reply
+// GET / — List user's auto-reply rules
 router.get('/', (req, res) => {
   try {
-    const deviceId = req.query.deviceId ? Number(req.query.deviceId) : null;
+    const rules = db.prepare(`
+      SELECT ar.*, d.name AS device_name 
+      FROM auto_replies ar
+      LEFT JOIN devices d ON ar.device_id = d.id
+      WHERE ar.user_id = ? 
+      ORDER BY ar.created_at DESC
+    `).all(req.user.id);
 
+    res.json({ success: true, data: rules });
+  } catch (err) {
+    console.error('List auto-reply rules error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
+  }
+});
+
+// POST / — Create rule
+router.post('/', (req, res) => {
+  try {
+    const { deviceId, triggerWord, response, matchType } = req.body;
+
+    if (!triggerWord || !response) {
+      return res.status(400).json({ success: false, error: 'triggerWord dan response diperlukan' });
+    }
+
+    const validMatchTypes = ['exact', 'contains', 'startsWith'];
+    const finalMatchType = validMatchTypes.includes(matchType) ? matchType : 'contains';
+
+    // Verify device ownership if deviceId provided
     if (deviceId) {
       const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, req.user.id);
       if (!device) {
-        return res.status(403).json({ success: false, error: 'Peranti tidak dijumpai atau bukan milik anda' });
+        return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
       }
     }
 
-    const rules = autoReplyService.getRules(req.user.id, deviceId);
-    res.json({ success: true, data: rules });
-  } catch (err) {
-    console.log(`[AutoReply Route] Ralat mendapatkan senarai peraturan: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+    const result = db.prepare(`
+      INSERT INTO auto_replies (user_id, device_id, trigger_word, response, match_type) 
+      VALUES (?, ?, ?, ?, ?)
+    `).run(req.user.id, deviceId || null, triggerWord, response, finalMatchType);
 
-// Cipta peraturan auto-reply baru
-router.post('/', (req, res) => {
-  try {
-    const { deviceId, triggerWord, replyMessage, matchType } = req.body;
+    const rule = db.prepare(`
+      SELECT ar.*, d.name AS device_name 
+      FROM auto_replies ar
+      LEFT JOIN devices d ON ar.device_id = d.id
+      WHERE ar.id = ?
+    `).get(result.lastInsertRowid);
 
-    if (!deviceId || !triggerWord || !replyMessage) {
-      return res.status(400).json({ success: false, error: 'Sila lengkapkan semua maklumat yang diperlukan' });
-    }
-
-    const validMatchTypes = ['exact', 'contains', 'startswith'];
-    if (matchType && !validMatchTypes.includes(matchType)) {
-      return res.status(400).json({ success: false, error: 'Jenis padanan tidak sah. Gunakan: exact, contains, atau startswith' });
-    }
-
-    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, req.user.id);
-    if (!device) {
-      return res.status(403).json({ success: false, error: 'Peranti tidak dijumpai atau bukan milik anda' });
-    }
-
-    const rule = autoReplyService.createRule(
-      req.user.id,
-      deviceId,
-      triggerWord,
-      replyMessage,
-      matchType || 'contains'
-    );
-
-    triggerSync('auto-reply: tambah peraturan');
     res.json({ success: true, data: rule });
   } catch (err) {
-    console.log(`[AutoReply Route] Ralat mencipta peraturan: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Create auto-reply rule error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Kemaskini peraturan auto-reply
+// PUT /:id — Edit rule
 router.put('/:id', (req, res) => {
   try {
-    const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    const { id } = req.params;
+    const { deviceId, triggerWord, response, matchType } = req.body;
+
+    const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ? AND user_id = ?').get(id, req.user.id);
     if (!rule) {
-      return res.status(404).json({ success: false, error: 'Peraturan tidak dijumpai' });
+      return res.status(404).json({ success: false, error: 'Auto-reply rule tidak dijumpai' });
     }
 
-    const { triggerWord, replyMessage, matchType, isActive } = req.body;
+    // Verify device ownership if deviceId provided
+    if (deviceId) {
+      const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, req.user.id);
+      if (!device) {
+        return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+      }
+    }
 
-    const updatedRule = autoReplyService.updateRule(
-      Number(req.params.id),
+    const validMatchTypes = ['exact', 'contains', 'startsWith'];
+    const finalMatchType = matchType && validMatchTypes.includes(matchType) ? matchType : rule.match_type;
+
+    db.prepare(`
+      UPDATE auto_replies 
+      SET device_id = ?, trigger_word = ?, response = ?, match_type = ?
+      WHERE id = ?
+    `).run(
+      deviceId !== undefined ? (deviceId || null) : rule.device_id,
       triggerWord || rule.trigger_word,
-      replyMessage || rule.reply_message,
-      matchType || rule.match_type,
-      isActive !== undefined ? isActive : rule.is_active
+      response || rule.response,
+      finalMatchType,
+      id
     );
 
-    triggerSync('auto-reply: kemaskini peraturan');
-    res.json({ success: true, data: updatedRule });
+    const updated = db.prepare(`
+      SELECT ar.*, d.name AS device_name 
+      FROM auto_replies ar
+      LEFT JOIN devices d ON ar.device_id = d.id
+      WHERE ar.id = ?
+    `).get(id);
+
+    res.json({ success: true, data: updated });
   } catch (err) {
-    console.log(`[AutoReply Route] Ralat mengemaskini peraturan: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Edit auto-reply rule error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Padam peraturan auto-reply
+// PUT /:id/toggle — Toggle is_active
+router.put('/:id/toggle', (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!rule) {
+      return res.status(404).json({ success: false, error: 'Auto-reply rule tidak dijumpai' });
+    }
+
+    const newActive = rule.is_active ? 0 : 1;
+    db.prepare('UPDATE auto_replies SET is_active = ? WHERE id = ?').run(newActive, id);
+
+    const updated = db.prepare(`
+      SELECT ar.*, d.name AS device_name 
+      FROM auto_replies ar
+      LEFT JOIN devices d ON ar.device_id = d.id
+      WHERE ar.id = ?
+    `).get(id);
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('Toggle auto-reply rule error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
+  }
+});
+
+// DELETE /:id — Delete rule
 router.delete('/:id', (req, res) => {
   try {
-    const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    const { id } = req.params;
+
+    const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ? AND user_id = ?').get(id, req.user.id);
     if (!rule) {
-      return res.status(404).json({ success: false, error: 'Peraturan tidak dijumpai' });
+      return res.status(404).json({ success: false, error: 'Auto-reply rule tidak dijumpai' });
     }
 
-    autoReplyService.deleteRule(Number(req.params.id));
-    triggerSync('auto-reply: padam peraturan');
-    res.json({ success: true, data: { message: 'Peraturan telah dipadam' } });
-  } catch (err) {
-    console.log(`[AutoReply Route] Ralat memadam peraturan: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+    db.prepare('DELETE FROM auto_replies WHERE id = ?').run(id);
 
-// Tukar status aktif/tidak aktif
-router.post('/:id/toggle', (req, res) => {
-  try {
-    const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!rule) {
-      return res.status(404).json({ success: false, error: 'Peraturan tidak dijumpai' });
-    }
-
-    const updatedRule = autoReplyService.toggleRule(Number(req.params.id));
-    triggerSync('auto-reply: tukar status peraturan');
-    res.json({ success: true, data: updatedRule });
+    res.json({ success: true });
   } catch (err) {
-    console.log(`[AutoReply Route] Ralat menukar status peraturan: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Delete auto-reply rule error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 

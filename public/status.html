@@ -3,122 +3,165 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Status</title>
+  <title>MultiChat — Status Peranti</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="sidebar" id="sidebar"></div>
-  <div class="main-content">
+  <div id="sidebar"></div>
+
+  <main class="main-content">
     <div class="page-header">
-      <div>
-        <h1 class="page-title">📡 Status Sistem</h1>
-        <p class="page-subtitle">Pantau status perkhidmatan Multichat</p>
-      </div>
-      <button class="btn btn-outline" onclick="loadStatus()">🔄 Muat Semula</button>
+      <h1>📊 Status Peranti</h1>
+      <button class="btn btn-outline" onclick="loadStatus()">
+        🔄 Muat Semula
+      </button>
     </div>
 
-    <div class="stats-grid">
+    <!-- Summary Cards -->
+    <div class="stats-grid" id="status-summary">
       <div class="stat-card">
-        <div class="stat-icon green">🟢</div>
-        <div>
-          <div class="stat-value" id="serverStatus">-</div>
-          <div class="stat-label">Status Pelayan</div>
+        <div class="stat-icon">📱</div>
+        <div class="stat-info">
+          <span class="stat-value" id="totalDevices">—</span>
+          <span class="stat-label">Total Peranti</span>
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon blue">⏱</div>
-        <div>
-          <div class="stat-value" id="uptime">-</div>
-          <div class="stat-label">Masa Aktif</div>
+        <div class="stat-icon">🟢</div>
+        <div class="stat-info">
+          <span class="stat-value" id="connectedDevices">—</span>
+          <span class="stat-label">Disambung</span>
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon purple">📱</div>
-        <div>
-          <div class="stat-value" id="deviceStatus">-</div>
-          <div class="stat-label">Peranti Tersambung</div>
+        <div class="stat-icon">🔴</div>
+        <div class="stat-info">
+          <span class="stat-value" id="disconnectedDevices">—</span>
+          <span class="stat-label">Terputus</span>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">📱 Status Peranti</h3>
-      </div>
-      <div id="deviceStatusList">
-        <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
+    <!-- Devices Status Table -->
+    <div class="section-card">
+      <h2>📋 Senarai Peranti</h2>
+      <small class="text-secondary">Auto-refresh setiap 30 saat</small>
+      <div class="table-responsive" style="margin-top:12px;">
+        <table class="table" id="status-table">
+          <thead>
+            <tr>
+              <th>Nama</th>
+              <th>Nombor Telefon</th>
+              <th>Status</th>
+              <th>Uptime</th>
+              <th>Mesej Dihantar</th>
+            </tr>
+          </thead>
+          <tbody id="status-tbody">
+            <tr>
+              <td colspan="5" class="text-center text-secondary">Memuatkan...</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
-  </div>
+  </main>
 
+  <div id="toast-container"></div>
   <script src="/js/app.js"></script>
   <script>
-    function formatUptime(seconds) {
-      const h = Math.floor(seconds / 3600);
-      const m = Math.floor((seconds % 3600) / 60);
-      return `${h}j ${m}m`;
-    }
+    loadSidebar();
+    initSSE();
 
+    // --- Load Status ---
     async function loadStatus() {
       try {
-        const [healthRes, devicesRes] = await Promise.all([
-          api('/api/health'),
-          api('/api/devices')
-        ]);
+        const res = await api('/status');
+        if (res.success) {
+          const data = res.data || {};
+          const devices = data.devices || [];
 
-        document.getElementById('serverStatus').textContent = healthRes.status === 'ok' ? 'Aktif' : 'Ralat';
-        document.getElementById('uptime').textContent = formatUptime(healthRes.uptime || 0);
+          // Update summary cards
+          const total = devices.length;
+          const connected = devices.filter(d => d.status === 'connected').length;
+          const disconnected = total - connected;
 
-        const devices = devicesRes.data || [];
-        const connected = devices.filter(d => d.status === 'connected').length;
-        document.getElementById('deviceStatus').textContent = `${connected}/${devices.length}`;
+          document.getElementById('totalDevices').textContent = total;
+          document.getElementById('connectedDevices').textContent = connected;
+          document.getElementById('disconnectedDevices').textContent = disconnected;
 
-        if (devices.length === 0) {
-          document.getElementById('deviceStatusList').innerHTML = '<p class="text-center text-muted" style="padding:20px;">Tiada peranti</p>';
-        } else {
-          document.getElementById('deviceStatusList').innerHTML = `
-            <div class="table-container">
-              <table>
-                <thead><tr><th>Peranti</th><th>Nombor</th><th>Status</th></tr></thead>
-                <tbody>${devices.map(d => `
-                  <tr data-device-id="${d.id}">
-                    <td><strong>${escapeHtml(d.name)}</strong></td>
-                    <td class="text-muted">${d.phone ? formatPhone(d.phone) : '-'}</td>
-                    <td><span class="badge badge-${d.status === 'connected' ? 'success' : d.status === 'connecting' ? 'warning' : 'danger'}">${d.status}</span></td>
-                  </tr>
-                `).join('')}</tbody>
-              </table>
-            </div>`;
+          // Render table
+          renderStatusTable(devices);
         }
-      } catch (err) {
-        showToast('Gagal memuatkan status: ' + err.message, 'error');
+      } catch(err) {
+        showToast('Gagal muat status peranti', 'error');
       }
     }
 
-    (async () => {
-      if (!await initPage('status')) return;
-      await loadStatus();
+    function renderStatusTable(devices) {
+      const tbody = document.getElementById('status-tbody');
+      if (!devices.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary">Tiada peranti</td></tr>';
+        return;
+      }
+      tbody.innerHTML = devices.map(d => {
+        const statusClass = d.status === 'connected' ? 'connected' : 'disconnected';
+        const statusText = d.status === 'connected' ? 'Disambung' : 'Terputus';
+        const uptime = d.uptime || '—';
+        const msgSent = d.messages_sent != null ? d.messages_sent : (d.messagesSent != null ? d.messagesSent : '—');
 
-      // SSE — kemas kini di tempat sahaja
-      onSSE('device-status', (data) => {
-        // Kemas kini kaunter peranti aktif
-        api('/api/devices').then(res => {
-          const devices = res.data || [];
-          const connected = devices.filter(d => d.status === 'connected').length;
-          document.getElementById('deviceStatus').textContent = `${connected}/${devices.length}`;
-        }).catch(() => {});
+        return `
+          <tr data-device-id="${d.id}">
+            <td>${escapeHtml(d.name || '')}</td>
+            <td>${escapeHtml(d.phone || '—')}</td>
+            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+            <td class="device-uptime">${escapeHtml(String(uptime))}</td>
+            <td class="device-msg-sent">${msgSent}</td>
+          </tr>
+        `;
+      }).join('');
+    }
 
-        // Kemas kini baris tertentu dalam jadual
-        const row = document.querySelector(`#deviceStatusList tr[data-device-id="${data.deviceId}"]`);
-        if (row) {
-          const badge = row.querySelector('.badge');
-          if (badge) {
-            badge.className = `badge badge-${data.status === 'connected' ? 'success' : data.status === 'connecting' ? 'warning' : 'danger'}`;
-            badge.textContent = data.status;
-          }
+    // --- SSE: Device Status Handler (targeted update) ---
+    document.addEventListener('sse:device-status', (e) => {
+      const data = e.detail;
+      const row = document.querySelector(`tr[data-device-id="${data.deviceId}"]`);
+      if (row) {
+        // Update status badge
+        const statusCell = row.children[2];
+        if (statusCell) {
+          const statusClass = data.status === 'connected' ? 'connected' : 'disconnected';
+          const statusText = data.status === 'connected' ? 'Disambung' : 'Terputus';
+          statusCell.innerHTML = `<span class="status-badge ${statusClass}">${statusText}</span>`;
         }
+
+        // Update phone if provided
+        if (data.phone) {
+          row.children[1].textContent = data.phone;
+        }
+      }
+
+      // Update summary counts
+      const allRows = document.querySelectorAll('#status-tbody tr[data-device-id]');
+      let connCount = 0;
+      allRows.forEach(r => {
+        const badge = r.querySelector('.status-badge');
+        if (badge && badge.classList.contains('connected')) connCount++;
       });
-    })();
+      const totalEl = document.getElementById('totalDevices');
+      const connEl = document.getElementById('connectedDevices');
+      const discEl = document.getElementById('disconnectedDevices');
+      const total = allRows.length;
+      if (totalEl) totalEl.textContent = total;
+      if (connEl) connEl.textContent = connCount;
+      if (discEl) discEl.textContent = total - connCount;
+    });
+
+    // Auto-refresh every 30 seconds
+    setInterval(loadStatus, 30000);
+
+    // Initial load
+    loadStatus();
   </script>
 </body>
 </html>

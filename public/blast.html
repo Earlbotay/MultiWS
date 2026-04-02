@@ -3,176 +3,440 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Broadcast</title>
+  <title>MultiChat — Blast Mesej</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="sidebar" id="sidebar"></div>
-  <div class="main-content">
+  <div id="sidebar"></div>
+
+  <main class="main-content">
     <div class="page-header">
-      <div>
-        <h1 class="page-title">📢 Broadcast</h1>
-        <p class="page-subtitle">Hantar mesej pukal ke senarai nombor</p>
-      </div>
-      <button class="btn btn-primary" onclick="showModal('createBlastModal')">+ Cipta Broadcast</button>
+      <h1>🚀 Blast Mesej</h1>
+      <button class="btn btn-primary" onclick="openBlastModal()">
+        <span>➕</span> Blast Baru
+      </button>
     </div>
 
-    <div id="blastList">
-      <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
+    <!-- Blast Jobs Table -->
+    <div class="section-card">
+      <h2>📋 Senarai Blast Jobs</h2>
+      <div class="table-responsive">
+        <table class="table" id="blast-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Peranti</th>
+              <th>Mesej</th>
+              <th>Jumlah</th>
+              <th>Status</th>
+              <th>Progres</th>
+              <th>Tindakan</th>
+            </tr>
+          </thead>
+          <tbody id="blast-tbody">
+            <tr>
+              <td colspan="7" class="text-center text-secondary">Memuatkan...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
-  </div>
+  </main>
 
   <!-- Create Blast Modal -->
-  <div class="modal-overlay" id="createBlastModal">
-    <div class="modal" style="max-width:560px;">
+  <div class="modal-overlay" id="blastModal" style="display:none;">
+    <div class="modal modal-lg">
       <div class="modal-header">
-        <h3 class="modal-title">📢 Cipta Broadcast Baru</h3>
-        <button class="modal-close" onclick="hideModal('createBlastModal')">✕</button>
+        <h3>🚀 Cipta Blast Baru</h3>
+        <button class="modal-close" onclick="closeBlastModal()">&times;</button>
       </div>
-
-      <div class="form-group">
-        <label class="form-label">Nama Broadcast</label>
-        <input type="text" class="form-input" id="blastName" placeholder="cth: Promo Raya 2025">
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Peranti</label>
-        <select class="form-select" id="blastDevice"></select>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Mesej</label>
-        <textarea class="form-textarea" id="blastMessage" placeholder="Tulis mesej di sini..." rows="4"></textarea>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Senarai Nombor (satu per baris)</label>
-        <textarea class="form-textarea" id="blastPhones" placeholder="60123456789&#10;60198765432&#10;..." rows="5"></textarea>
-      </div>
-
-      <div class="flex gap-3">
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">Delay Min (saat)</label>
-          <input type="number" class="form-input" id="blastDelayMin" value="5" min="1">
-        </div>
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">Delay Max (saat)</label>
-          <input type="number" class="form-input" id="blastDelayMax" value="15" min="1">
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn btn-outline" onclick="hideModal('createBlastModal')">Batal</button>
-        <button class="btn btn-primary" onclick="createBlast()">Cipta Broadcast</button>
+      <div class="modal-body">
+        <form id="blastForm" onsubmit="handleCreateBlast(event)">
+          <div class="form-group">
+            <label for="blastDevice">Peranti</label>
+            <select id="blastDevice" class="form-control" required>
+              <option value="">-- Pilih Peranti --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="blastMessage">Mesej</label>
+            <textarea id="blastMessage" class="form-control" rows="4" placeholder="Taip mesej blast anda di sini..." required></textarea>
+          </div>
+          <div class="form-group">
+            <label for="blastRecipients">Senarai Penerima</label>
+            <textarea id="blastRecipients" class="form-control" rows="6" placeholder="Satu nombor setiap baris, contoh:&#10;60123456789&#10;60198765432&#10;60112233445" required></textarea>
+            <small class="text-secondary">Masukkan satu nombor telefon setiap baris (termasuk kod negara)</small>
+          </div>
+          <div class="form-row">
+            <div class="form-group form-group-half">
+              <label for="blastDelayMin">Delay Min (saat)</label>
+              <input type="number" id="blastDelayMin" class="form-control" value="1" min="1" required>
+            </div>
+            <div class="form-group form-group-half">
+              <label for="blastDelayMax">Delay Max (saat)</label>
+              <input type="number" id="blastDelayMax" class="form-control" value="5" min="1" required>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-outline" onclick="closeBlastModal()">Batal</button>
+            <button type="submit" class="btn btn-primary" id="createBlastBtn">Cipta Blast</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
 
+  <!-- Blast Detail Modal -->
+  <div class="modal-overlay" id="blastDetailModal" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>📄 Detail Blast <span id="detailBlastId"></span></h3>
+        <button class="modal-close" onclick="closeBlastDetailModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="blast-detail-info" id="blastDetailInfo">
+          <div class="form-row">
+            <div class="form-group form-group-half">
+              <label>Status</label>
+              <p id="detailStatus">—</p>
+            </div>
+            <div class="form-group form-group-half">
+              <label>Progres</label>
+              <p id="detailProgress">—</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Mesej</label>
+            <div class="detail-message-box" id="detailMessage"></div>
+          </div>
+        </div>
+        <h4 style="margin:16px 0 8px;">Senarai Penerima</h4>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Nombor</th>
+                <th>Status</th>
+                <th>Dihantar</th>
+                <th>Ralat</th>
+              </tr>
+            </thead>
+            <tbody id="detailRecipientsTbody">
+              <tr><td colspan="5" class="text-center text-secondary">Memuatkan...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
   <script src="/js/app.js"></script>
   <script>
+    loadSidebar();
+    initSSE();
+
+    let blastDevices = [];
+
+    // --- Load Blasts ---
     async function loadBlasts() {
       try {
-        const res = await api('/api/blast');
-        const jobs = res.data || [];
-
-        if (jobs.length === 0) {
-          document.getElementById('blastList').innerHTML = `
-            <div class="empty-state">
-              <div class="empty-state-icon">📢</div>
-              <div class="empty-state-title">Tiada broadcast</div>
-              <p class="text-muted">Cipta broadcast pertama anda untuk mula.</p>
-            </div>`;
-          return;
+        const res = await api('/blast');
+        if (res.success) {
+          renderBlasts(res.data || []);
         }
-
-        document.getElementById('blastList').innerHTML = `
-          <div class="table-container">
-            <table>
-              <thead><tr>
-                <th>Nama</th><th>Status</th><th>Penerima</th><th>Mesej</th><th>Dicipta</th><th>Tindakan</th>
-              </tr></thead>
-              <tbody>${jobs.map(j => `
-                <tr>
-                  <td><strong>${escapeHtml(j.name)}</strong></td>
-                  <td><span class="badge badge-${j.status === 'completed' ? 'success' : j.status === 'running' ? 'info' : j.status === 'paused' ? 'warning' : 'muted'}">${j.status}</span></td>
-                  <td>${j.total_recipients || 0}</td>
-                  <td class="text-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(j.message || '')}</td>
-                  <td class="text-muted text-sm">${formatDate(j.created_at)}</td>
-                  <td>
-                    <div class="flex gap-2">
-                      ${j.status === 'pending' || j.status === 'paused' ? `<button class="btn btn-success btn-sm" onclick="startBlast(${j.id})">▶ Mula</button>` : ''}
-                      ${j.status === 'running' ? `<button class="btn btn-warning btn-sm" onclick="pauseBlast(${j.id})">⏸ Jeda</button>` : ''}
-                      ${j.status === 'running' ? `<button class="btn btn-danger btn-sm" onclick="cancelBlast(${j.id})">⏹ Batal</button>` : ''}
-                      <button class="btn btn-outline btn-sm" onclick="deleteBlast(${j.id})">🗑</button>
-                    </div>
-                  </td>
-                </tr>
-              `).join('')}</tbody>
-            </table>
-          </div>`;
-      } catch (err) {
-        showToast('Gagal memuatkan broadcast: ' + err.message, 'error');
+      } catch(err) {
+        showToast('Gagal muat senarai blast', 'error');
       }
     }
 
-    async function loadDeviceOptions() {
-      try {
-        const res = await api('/api/devices');
-        const sel = document.getElementById('blastDevice');
-        sel.innerHTML = (res.data || []).map(d =>
-          `<option value="${d.id}">${escapeHtml(d.name)} ${d.status === 'connected' ? '🟢' : '🔴'}</option>`
-        ).join('');
-      } catch (err) {}
+    function renderBlasts(blasts) {
+      const tbody = document.getElementById('blast-tbody');
+      if (!blasts.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary">Tiada blast job. Klik "Blast Baru" untuk mula.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = blasts.map(b => createBlastRow(b)).join('');
     }
 
-    async function createBlast() {
+    function createBlastRow(b) {
+      const msgPreview = (b.message || '').length > 50 ? escapeHtml(b.message.substring(0, 50)) + '...' : escapeHtml(b.message || '');
+      const total = b.total || 0;
+      const sent = b.sent || 0;
+      const failed = b.failed || 0;
+      const pct = total > 0 ? Math.round(((sent + failed) / total) * 100) : 0;
+      const statusBadge = getBlastStatusBadge(b.status);
+      const deviceName = b.device_name || b.deviceName || 'Peranti #' + (b.device_id || b.deviceId || '?');
+
+      let actions = '';
+      switch(b.status) {
+        case 'pending':
+          actions = `
+            <button class="btn btn-sm btn-primary" onclick="startBlast(${b.id})">▶ Mula</button>
+          `;
+          break;
+        case 'running':
+          actions = `
+            <button class="btn btn-sm btn-danger" onclick="stopBlast(${b.id})">⏹ Henti</button>
+          `;
+          break;
+        default:
+          actions = '';
+      }
+      actions += `<button class="btn btn-sm btn-outline" onclick="viewBlast(${b.id})">👁 Lihat</button>`;
+
+      return `
+        <tr data-blast-id="${b.id}">
+          <td>#${b.id}</td>
+          <td>${escapeHtml(deviceName)}</td>
+          <td class="blast-msg-preview" title="${escapeHtml(b.message || '')}">${msgPreview}</td>
+          <td>
+            <span class="blast-counts">
+              <span class="text-success">${sent}</span> / 
+              <span class="text-danger">${failed}</span> / 
+              ${total}
+            </span>
+          </td>
+          <td>${statusBadge}</td>
+          <td>
+            <div class="progress-bar-wrap">
+              <div class="progress-bar" style="width:${pct}%;" data-blast-progress="${b.id}"></div>
+            </div>
+            <span class="text-secondary text-sm">${pct}%</span>
+          </td>
+          <td class="table-actions">${actions}</td>
+        </tr>
+      `;
+    }
+
+    function getBlastStatusBadge(status) {
+      const map = {
+        pending: '<span class="status-badge warning">Pending</span>',
+        running: '<span class="status-badge info">Running</span>',
+        completed: '<span class="status-badge connected">Completed</span>',
+        stopped: '<span class="status-badge disconnected">Stopped</span>',
+        failed: '<span class="status-badge danger">Failed</span>'
+      };
+      return map[status] || `<span class="status-badge">${escapeHtml(status || 'unknown')}</span>`;
+    }
+
+    // --- Load Devices for selector ---
+    async function loadDevicesForBlast() {
       try {
-        const phones = document.getElementById('blastPhones').value.split('\n').map(p => p.trim()).filter(Boolean);
-        await api('/api/blast', {
+        const res = await api('/devices');
+        if (res.success) {
+          blastDevices = (res.data || []).filter(d => d.status === 'connected');
+          const select = document.getElementById('blastDevice');
+          select.innerHTML = '<option value="">-- Pilih Peranti --</option>' +
+            blastDevices.map(d => `<option value="${d.id}">${escapeHtml(d.name)}${d.phone ? ' (' + escapeHtml(d.phone) + ')' : ''}</option>`).join('');
+        }
+      } catch(err) {
+        // Silently fail
+      }
+    }
+
+    // --- Open / Close Modals ---
+    function openBlastModal() {
+      loadDevicesForBlast();
+      document.getElementById('blastMessage').value = '';
+      document.getElementById('blastRecipients').value = '';
+      document.getElementById('blastDelayMin').value = '1';
+      document.getElementById('blastDelayMax').value = '5';
+      document.getElementById('blastModal').style.display = 'flex';
+    }
+
+    function closeBlastModal() {
+      document.getElementById('blastModal').style.display = 'none';
+    }
+
+    function closeBlastDetailModal() {
+      document.getElementById('blastDetailModal').style.display = 'none';
+    }
+
+    // --- Create Blast ---
+    async function handleCreateBlast(e) {
+      e.preventDefault();
+      const deviceId = document.getElementById('blastDevice').value;
+      const message = document.getElementById('blastMessage').value.trim();
+      const recipientsRaw = document.getElementById('blastRecipients').value.trim();
+      const delayMin = parseInt(document.getElementById('blastDelayMin').value) || 1;
+      const delayMax = parseInt(document.getElementById('blastDelayMax').value) || 5;
+
+      if (!deviceId) { showToast('Sila pilih peranti', 'error'); return; }
+      if (!message) { showToast('Sila masukkan mesej', 'error'); return; }
+      if (!recipientsRaw) { showToast('Sila masukkan senarai penerima', 'error'); return; }
+
+      const recipients = recipientsRaw.split('\n').map(r => r.trim()).filter(r => r.length > 0);
+      if (recipients.length === 0) { showToast('Senarai penerima kosong', 'error'); return; }
+
+      const btn = document.getElementById('createBlastBtn');
+      btn.disabled = true;
+      btn.textContent = 'Mencipta...';
+
+      try {
+        const res = await api('/blast', {
           method: 'POST',
-          body: JSON.stringify({
-            name: document.getElementById('blastName').value,
-            deviceId: parseInt(document.getElementById('blastDevice').value),
-            message: document.getElementById('blastMessage').value,
-            phones,
-            delayMin: parseInt(document.getElementById('blastDelayMin').value) || 5,
-            delayMax: parseInt(document.getElementById('blastDelayMax').value) || 15,
-          })
+          body: JSON.stringify({ deviceId, message, recipients, delayMin, delayMax })
         });
-        hideModal('createBlastModal');
-        showToast('Broadcast dicipta!', 'success');
-        loadBlasts();
-      } catch (err) {
-        showToast(err.message, 'error');
+        if (res.success) {
+          showToast(`Blast berjaya dicipta! (${recipients.length} penerima)`, 'success');
+          closeBlastModal();
+          // Add new row to table
+          const tbody = document.getElementById('blast-tbody');
+          const emptyRow = tbody.querySelector('td[colspan]');
+          if (emptyRow) emptyRow.parentElement.remove();
+          tbody.insertAdjacentHTML('afterbegin', createBlastRow(res.data));
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal mencipta blast', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Cipta Blast';
       }
     }
 
+    // --- Start Blast ---
     async function startBlast(id) {
-      try { await api(`/api/blast/${id}/start`, { method: 'POST' }); showToast('Broadcast dimulakan', 'success'); loadBlasts(); }
-      catch (err) { showToast(err.message, 'error'); }
+      try {
+        const res = await api(`/blast/${id}/start`, { method: 'POST' });
+        if (res.success) {
+          showToast('Blast dimulakan!', 'success');
+          // Update row status
+          const row = document.querySelector(`[data-blast-id="${id}"]`);
+          if (row) {
+            const statusCell = row.children[4];
+            if (statusCell) statusCell.innerHTML = getBlastStatusBadge('running');
+            const actionsCell = row.querySelector('.table-actions');
+            if (actionsCell) {
+              actionsCell.innerHTML = `
+                <button class="btn btn-sm btn-danger" onclick="stopBlast(${id})">⏹ Henti</button>
+                <button class="btn btn-sm btn-outline" onclick="viewBlast(${id})">👁 Lihat</button>
+              `;
+            }
+          }
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal memulakan blast', 'error');
+      }
     }
 
-    async function pauseBlast(id) {
-      try { await api(`/api/blast/${id}/pause`, { method: 'POST' }); showToast('Broadcast dijedakan', 'info'); loadBlasts(); }
-      catch (err) { showToast(err.message, 'error'); }
+    // --- Stop Blast ---
+    async function stopBlast(id) {
+      try {
+        const res = await api(`/blast/${id}/stop`, { method: 'POST' });
+        if (res.success) {
+          showToast('Blast dihentikan', 'success');
+          const row = document.querySelector(`[data-blast-id="${id}"]`);
+          if (row) {
+            const statusCell = row.children[4];
+            if (statusCell) statusCell.innerHTML = getBlastStatusBadge('stopped');
+            const actionsCell = row.querySelector('.table-actions');
+            if (actionsCell) {
+              actionsCell.innerHTML = `
+                <button class="btn btn-sm btn-outline" onclick="viewBlast(${id})">👁 Lihat</button>
+              `;
+            }
+          }
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal menghentikan blast', 'error');
+      }
     }
 
-    async function cancelBlast(id) {
-      if (!await confirmAction('Batalkan broadcast ini?')) return;
-      try { await api(`/api/blast/${id}/cancel`, { method: 'POST' }); showToast('Broadcast dibatalkan', 'warning'); loadBlasts(); }
-      catch (err) { showToast(err.message, 'error'); }
+    // --- View Blast Detail ---
+    async function viewBlast(id) {
+      document.getElementById('blastDetailModal').style.display = 'flex';
+      document.getElementById('detailBlastId').textContent = '#' + id;
+      document.getElementById('detailStatus').textContent = '—';
+      document.getElementById('detailProgress').textContent = '—';
+      document.getElementById('detailMessage').textContent = '—';
+      document.getElementById('detailRecipientsTbody').innerHTML = '<tr><td colspan="5" class="text-center text-secondary">Memuatkan...</td></tr>';
+
+      try {
+        const res = await api(`/blast/${id}`);
+        if (res.success) {
+          const b = res.data;
+          document.getElementById('detailStatus').innerHTML = getBlastStatusBadge(b.status);
+          const total = b.total || 0;
+          const sent = b.sent || 0;
+          const failed = b.failed || 0;
+          const pct = total > 0 ? Math.round(((sent + failed) / total) * 100) : 0;
+          document.getElementById('detailProgress').textContent = `${sent} dihantar / ${failed} gagal / ${total} jumlah (${pct}%)`;
+          document.getElementById('detailMessage').textContent = b.message || '—';
+
+          const recipients = b.recipients || [];
+          const tbody = document.getElementById('detailRecipientsTbody');
+          if (!recipients.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary">Tiada data penerima</td></tr>';
+          } else {
+            tbody.innerHTML = recipients.map((r, i) => `
+              <tr>
+                <td>${i + 1}</td>
+                <td>${escapeHtml(r.phone || '')}</td>
+                <td>${getRecipientStatusBadge(r.status)}</td>
+                <td>${r.sent_at ? new Date(r.sent_at).toLocaleString('ms-MY') : '—'}</td>
+                <td class="text-secondary">${escapeHtml(r.error || '—')}</td>
+              </tr>
+            `).join('');
+          }
+        }
+      } catch(err) {
+        showToast('Gagal muat detail blast', 'error');
+      }
     }
 
-    async function deleteBlast(id) {
-      if (!await confirmAction('Padam broadcast ini?')) return;
-      try { await api(`/api/blast/${id}`, { method: 'DELETE' }); showToast('Broadcast dipadam', 'success'); loadBlasts(); }
-      catch (err) { showToast(err.message, 'error'); }
+    function getRecipientStatusBadge(status) {
+      const map = {
+        pending: '<span class="status-badge warning">Pending</span>',
+        sent: '<span class="status-badge connected">Sent</span>',
+        failed: '<span class="status-badge danger">Failed</span>'
+      };
+      return map[status] || `<span class="status-badge">${escapeHtml(status || 'unknown')}</span>`;
     }
 
-    (async () => {
-      if (!await initPage('blast')) return;
-      await Promise.all([loadBlasts(), loadDeviceOptions()]);
-    })();
+    // --- SSE: Blast Progress Handler (targeted update) ---
+    document.addEventListener('sse:blast-progress', (e) => {
+      const data = e.detail;
+      const row = document.querySelector(`[data-blast-id="${data.blastId}"]`);
+      if (!row) return;
+
+      const total = data.total || 0;
+      const sent = data.sent || 0;
+      const failed = data.failed || 0;
+      const pct = total > 0 ? Math.round(((sent + failed) / total) * 100) : 0;
+
+      // Update counts
+      const countsEl = row.querySelector('.blast-counts');
+      if (countsEl) {
+        countsEl.innerHTML = `<span class="text-success">${sent}</span> / <span class="text-danger">${failed}</span> / ${total}`;
+      }
+
+      // Update status badge
+      if (data.status) {
+        const statusCell = row.children[4];
+        if (statusCell) statusCell.innerHTML = getBlastStatusBadge(data.status);
+
+        // Update action buttons on completion
+        if (data.status === 'completed' || data.status === 'failed' || data.status === 'stopped') {
+          const actionsCell = row.querySelector('.table-actions');
+          if (actionsCell) {
+            actionsCell.innerHTML = `<button class="btn btn-sm btn-outline" onclick="viewBlast(${data.blastId})">👁 Lihat</button>`;
+          }
+        }
+      }
+
+      // Update progress bar
+      const progressBar = row.querySelector(`[data-blast-progress="${data.blastId}"]`);
+      if (progressBar) {
+        progressBar.style.width = pct + '%';
+      }
+      const pctText = progressBar ? progressBar.parentElement.nextElementSibling : null;
+      if (pctText) pctText.textContent = pct + '%';
+    });
+
+    // Initial load
+    loadBlasts();
   </script>
 </body>
 </html>

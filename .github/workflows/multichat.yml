@@ -1,86 +1,100 @@
-name: Multichat Platform
+name: MultiChat Deploy
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: '0 */5 * * *'
 
 jobs:
-  run:
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 360
+
+    env:
+      PORT: 8080
+      DATA_DIR: ./MULTIWSDATA
+      NODE_ENV: production
+      CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
+      DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_TOKEN }}
+      DATA_REPO: ${{ secrets.DATA_REPO }}
+      ADMIN_USER: ${{ secrets.ADMIN_USER }}
+      ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: deps-${{ hashFiles('package.json') }}
-          restore-keys: deps-
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install --production
+        run: npm ci
 
       - name: Clone data repo
         run: |
-          git clone https://x-access-token:${{ secrets.DATA_REPO_TOKEN }}@github.com/${{ secrets.DATA_REPO }}.git MULTIWSDATA
-          mkdir -p MULTIWSDATA/sessions MULTIWSDATA/uploads MULTIWSDATA/db MULTIWSDATA/logs
-          cd MULTIWSDATA
-          git config user.email "multichat-bot@users.noreply.github.com"
-          git config user.name "Multichat Bot"
-          printf '*.db-wal\n*.db-shm\n*.log\n' > .gitignore
+          git clone https://x-access-token:${DATA_REPO_TOKEN}@github.com/${DATA_REPO}.git ${DATA_DIR} || true
+          cd ${DATA_DIR}
+          git config user.name "MultiChat Bot"
+          git config user.email "multichat@bot.local"
 
-          if [ -z "$(git log --oneline 2>/dev/null)" ]; then
-            git add -A
-            git commit -m "init: struktur data awal" || true
-            git push origin main || git push origin HEAD:main
-          fi
-          cd ..
+      - name: Create data directories
+        run: |
+          mkdir -p ${DATA_DIR}/sessions
+          mkdir -p ${DATA_DIR}/db
+          mkdir -p ${DATA_DIR}/logs
+          mkdir -p ${DATA_DIR}/auth
+          mkdir -p ${DATA_DIR}/uploads
 
       - name: Install Cloudflare Tunnel
         run: |
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
-          chmod +x cloudflared
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
+          sudo dpkg -i cloudflared.deb
+          rm cloudflared.deb
 
-      - name: Start services
-        env:
-          CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
-          DATA_DIR: ./MULTIWSDATA
-          NODE_ENV: production
-          PORT: 8080
-          SESSION_SECRET: ${{ github.sha }}
-          ADMIN_USER: ${{ secrets.ADMIN_USER }}
-          ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
+      - name: Start Cloudflare Tunnel
         run: |
-          ./cloudflared tunnel run --token $CF_TUNNEL_TOKEN &
-          CF_PID=$!
+          nohup cloudflared tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN} &
+          sleep 5
+          echo "✅ Cloudflare Tunnel started"
 
+      - name: Start MultiChat
+        run: |
           node src/server.js &
-          APP_PID=$!
+          sleep 5
+          echo "✅ MultiChat started on port ${PORT}"
 
-          echo "Multichat dimulakan pada port 8080"
-          sleep 17700
-
-          echo "Mematikan perkhidmatan..."
-          kill -SIGTERM $APP_PID 2>/dev/null
-
-          for i in $(seq 1 30); do
-            if ! kill -0 $APP_PID 2>/dev/null; then
-              echo "Aplikasi ditutup dengan selamat"
+      - name: Health check
+        run: |
+          for i in {1..10}; do
+            if curl -sf http://localhost:${PORT}/api/health; then
+              echo ""
+              echo "✅ Health check passed"
               break
             fi
-            sleep 1
+            echo "⏳ Waiting for server... attempt $i"
+            sleep 3
           done
 
-          kill -9 $APP_PID 2>/dev/null || true
-          kill $CF_PID 2>/dev/null
-          echo "Multichat dimatikan."
+      - name: Keep alive
+        run: |
+          echo "🟢 MultiChat is running..."
+          echo "   Press cancel to stop the workflow"
+          while true; do
+            sleep 60
+            # Health check every minute
+            if ! curl -sf http://localhost:${PORT}/api/health > /dev/null 2>&1; then
+              echo "⚠️ Health check failed, restarting..."
+              node src/server.js &
+              sleep 5
+            fi
+            # Sync data every 5 minutes
+            MINUTES=$(( $(date +%s) / 60 % 5 ))
+            if [ "$MINUTES" -eq "0" ]; then
+              cd ${DATA_DIR} && git add -A && git diff --cached --quiet || git commit -m "auto-sync $(date '+%Y-%m-%d %H:%M:%S')" && git push || true
+              cd ..
+            fi
+          done

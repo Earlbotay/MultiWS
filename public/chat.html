@@ -3,183 +3,355 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Sembang</title>
+  <title>MultiChat — Chat</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="sidebar" id="sidebar"></div>
-  <div class="main-content">
+  <div id="sidebar"></div>
+
+  <main class="main-content">
     <div class="page-header">
-      <div>
-        <h1 class="page-title">💬 Sembang</h1>
-        <p class="page-subtitle">Lihat dan hantar mesej WhatsApp</p>
-      </div>
-      <div class="flex gap-3 items-center">
-        <label class="form-label" style="margin:0;">Peranti:</label>
-        <select class="form-select" id="deviceSelect" style="width:200px;" onchange="loadConversations()">
-          <option value="">Pilih peranti...</option>
-        </select>
-      </div>
+      <h1>💬 Chat</h1>
     </div>
 
-    <div class="chat-layout" id="chatLayout" style="display:none;">
-      <div class="chat-sidebar">
-        <div class="chat-sidebar-header">
-          <input type="text" class="form-input" id="searchChat" placeholder="🔍 Cari perbualan..." oninput="filterConversations()">
-        </div>
-        <div class="chat-list" id="chatList">
-          <div class="empty-state"><p class="text-muted">Tiada perbualan</p></div>
-        </div>
-      </div>
-      <div class="chat-main">
-        <div class="chat-messages" id="chatMessages">
-          <div class="empty-state">
-            <div class="empty-state-icon">💬</div>
-            <div class="empty-state-title">Pilih perbualan</div>
-            <p class="text-muted">Klik pada perbualan di sebelah kiri untuk melihat mesej</p>
+    <div class="chat-layout">
+      <!-- Left Panel: Device Selector + Conversations -->
+      <div class="chat-left-panel">
+        <div class="chat-left-header">
+          <div class="form-group" style="margin-bottom:8px;">
+            <select id="device-select" class="form-control" onchange="handleDeviceChange()">
+              <option value="">-- Pilih Peranti --</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <input type="text" id="conversation-search" class="form-control" placeholder="🔍 Cari perbualan..." oninput="filterConversations()">
           </div>
         </div>
-        <div class="chat-input-area" id="chatInputArea" style="display:none;">
-          <input type="text" class="form-input" id="messageInput" placeholder="Taip mesej..." onkeydown="if(event.key==='Enter')sendMessage()">
-          <button class="btn btn-primary" onclick="sendMessage()">Hantar</button>
+        <div class="conversation-list" id="conversation-list">
+          <div class="empty-state-sm">
+            <p>Pilih peranti untuk melihat perbualan</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Messages -->
+      <div class="chat-right-panel">
+        <div class="chat-header" id="chat-header" style="display:none;">
+          <div class="chat-header-info">
+            <h3 id="chat-contact-name">—</h3>
+            <p class="text-secondary text-sm" id="chat-contact-jid"></p>
+          </div>
+        </div>
+
+        <div class="message-area" id="message-area">
+          <div class="empty-state-sm">
+            <p>💬 Pilih perbualan untuk melihat mesej</p>
+          </div>
+        </div>
+
+        <div class="chat-input-area" id="chat-input-area" style="display:none;">
+          <div class="chat-input-wrap">
+            <textarea id="message-input" class="form-control" placeholder="Taip mesej..." rows="1" onkeydown="handleMessageKeydown(event)"></textarea>
+            <button class="btn btn-primary btn-send" onclick="sendMessage()" id="sendBtn">
+              ➤
+            </button>
+          </div>
         </div>
       </div>
     </div>
+  </main>
 
-    <div id="noDevice" class="empty-state">
-      <div class="empty-state-icon">📱</div>
-      <div class="empty-state-title">Pilih Peranti</div>
-      <p class="text-muted">Pilih peranti dari dropdown di atas untuk melihat perbualan</p>
-    </div>
-  </div>
-
+  <div id="toast-container"></div>
   <script src="/js/app.js"></script>
   <script>
-    let conversations = [];
+    loadSidebar();
+    initSSE();
+
     let currentDeviceId = null;
     let currentJid = null;
+    let allConversations = [];
+    let currentPage = 1;
+    let hasMoreMessages = true;
+    let loadingMessages = false;
 
-    async function loadDeviceList() {
+    // --- Load connected devices into selector ---
+    async function loadDevices() {
       try {
-        const res = await api('/api/devices');
-        const devices = res.data || [];
-        const sel = document.getElementById('deviceSelect');
-        sel.innerHTML = '<option value="">Pilih peranti...</option>' +
-          devices.map(d => `<option value="${d.id}">${escapeHtml(d.name)} ${d.status === 'connected' ? '🟢' : '🔴'}</option>`).join('');
-      } catch (err) {
-        showToast('Gagal memuatkan senarai peranti', 'error');
+        const res = await api('/devices');
+        if (res.success) {
+          const select = document.getElementById('device-select');
+          const connected = (res.data || []).filter(d => d.status === 'connected');
+          select.innerHTML = '<option value="">-- Pilih Peranti --</option>' +
+            connected.map(d => `<option value="${d.id}">${escapeHtml(d.name)}${d.phone ? ' (' + escapeHtml(d.phone) + ')' : ''}</option>`).join('');
+        }
+      } catch(err) {
+        showToast('Gagal muat senarai peranti', 'error');
       }
     }
 
-    async function loadConversations() {
-      const deviceId = document.getElementById('deviceSelect').value;
-      if (!deviceId) {
-        document.getElementById('chatLayout').style.display = 'none';
-        document.getElementById('noDevice').style.display = '';
-        return;
-      }
-
-      currentDeviceId = parseInt(deviceId);
-      document.getElementById('chatLayout').style.display = '';
-      document.getElementById('noDevice').style.display = 'none';
-
-      try {
-        const res = await api(`/api/chat/conversations/${currentDeviceId}`);
-        conversations = res.data || [];
-        renderConversations();
-      } catch (err) {
-        showToast('Gagal memuatkan perbualan: ' + err.message, 'error');
+    function handleDeviceChange() {
+      const select = document.getElementById('device-select');
+      const deviceId = select.value;
+      if (deviceId) {
+        currentDeviceId = deviceId;
+        currentJid = null;
+        loadConversations(deviceId);
+        // Reset right panel
+        document.getElementById('chat-header').style.display = 'none';
+        document.getElementById('chat-input-area').style.display = 'none';
+        document.getElementById('message-area').innerHTML = '<div class="empty-state-sm"><p>💬 Pilih perbualan untuk melihat mesej</p></div>';
+      } else {
+        currentDeviceId = null;
+        currentJid = null;
+        document.getElementById('conversation-list').innerHTML = '<div class="empty-state-sm"><p>Pilih peranti untuk melihat perbualan</p></div>';
+        document.getElementById('chat-header').style.display = 'none';
+        document.getElementById('chat-input-area').style.display = 'none';
+        document.getElementById('message-area').innerHTML = '<div class="empty-state-sm"><p>💬 Pilih perbualan untuk melihat mesej</p></div>';
       }
     }
 
-    function renderConversations() {
-      const search = document.getElementById('searchChat').value.toLowerCase();
-      const filtered = conversations.filter(c =>
-        !search || (c.remote_jid && c.remote_jid.toLowerCase().includes(search))
-      );
+    // --- Load Conversations ---
+    async function loadConversations(deviceId) {
+      const list = document.getElementById('conversation-list');
+      list.innerHTML = '<div class="loading-placeholder"><p>Memuatkan...</p></div>';
+      try {
+        const res = await api(`/chat/${deviceId}/conversations`);
+        if (res.success) {
+          allConversations = res.data || [];
+          renderConversations(allConversations);
+        }
+      } catch(err) {
+        list.innerHTML = '<div class="empty-state-sm"><p>Gagal muat perbualan</p></div>';
+      }
+    }
 
-      const list = document.getElementById('chatList');
-      if (filtered.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p class="text-muted">Tiada perbualan</p></div>';
+    function renderConversations(conversations) {
+      const list = document.getElementById('conversation-list');
+      if (!conversations.length) {
+        list.innerHTML = '<div class="empty-state-sm"><p>Tiada perbualan</p></div>';
         return;
       }
-
-      list.innerHTML = filtered.map(c => {
+      list.innerHTML = conversations.map(c => {
         const jid = c.remote_jid || '';
-        const name = jid.split('@')[0];
-        const isActive = currentJid === jid ? ' active' : '';
+        const displayName = jid.replace(/@s\.whatsapp\.net$/, '').replace(/@g\.us$/, ' (Group)');
+        const lastMsg = c.last_message || '';
+        const preview = lastMsg.length > 40 ? lastMsg.substring(0, 40) + '...' : lastMsg;
+        const activeClass = currentJid === jid ? 'active' : '';
+        const timeStr = c.last_time ? formatTime(c.last_time) : '';
         return `
-          <div class="chat-item${isActive}" onclick="openChat('${escapeHtml(jid)}')">
-            <span class="chat-item-time">${formatTime(c.last_time)}</span>
-            <div class="chat-item-name">${escapeHtml(name)}</div>
-            <div class="chat-item-preview">${escapeHtml(c.last_message || 'Tiada mesej')}</div>
-          </div>`;
+          <div class="conversation-item ${activeClass}" data-jid="${escapeHtml(jid)}" onclick="selectConversation('${escapeHtml(jid)}')">
+            <div class="conversation-info">
+              <div class="conversation-name">${escapeHtml(displayName)}</div>
+              <div class="conversation-preview text-secondary">${escapeHtml(preview)}</div>
+            </div>
+            <div class="conversation-time text-secondary text-sm">${timeStr}</div>
+          </div>
+        `;
       }).join('');
     }
 
-    function filterConversations() { renderConversations(); }
-
-    async function openChat(jid) {
-      currentJid = jid;
-      renderConversations();
-
-      try {
-        const res = await api(`/api/chat/messages/${currentDeviceId}/${encodeURIComponent(jid)}`);
-        const messages = res.data || [];
-
-        const messagesEl = document.getElementById('chatMessages');
-        if (messages.length === 0) {
-          messagesEl.innerHTML = '<div class="empty-state"><p class="text-muted">Tiada mesej lagi</p></div>';
-        } else {
-          messagesEl.innerHTML = messages.map(m => `
-            <div class="message-bubble ${m.is_outgoing ? 'outgoing' : 'incoming'}">
-              ${escapeHtml(m.message || '')}
-              <div class="message-time">${formatTime(m.timestamp)}</div>
-            </div>
-          `).join('');
-          messagesEl.scrollTop = messagesEl.scrollHeight;
-        }
-
-        document.getElementById('chatInputArea').style.display = '';
-      } catch (err) {
-        showToast('Gagal memuatkan mesej: ' + err.message, 'error');
+    function filterConversations() {
+      const query = document.getElementById('conversation-search').value.toLowerCase();
+      if (!query) {
+        renderConversations(allConversations);
+        return;
       }
-    }
-
-    async function sendMessage() {
-      const input = document.getElementById('messageInput');
-      const message = input.value.trim();
-      if (!message || !currentJid || !currentDeviceId) return;
-
-      input.value = '';
-      try {
-        await api(`/api/chat/send/${currentDeviceId}`, {
-          method: 'POST',
-          body: JSON.stringify({ to: currentJid.split('@')[0], message })
-        });
-
-        // Add to UI optimistically
-        const messagesEl = document.getElementById('chatMessages');
-        messagesEl.innerHTML += `
-          <div class="message-bubble outgoing">
-            ${escapeHtml(message)}
-            <div class="message-time">baru je</div>
-          </div>`;
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      } catch (err) {
-        showToast('Gagal menghantar: ' + err.message, 'error');
-      }
-    }
-
-    // Init
-    (async () => {
-      if (!await initPage('chat')) return;
-      await loadDeviceList();
-
-      onSSE('message-sent', () => {
-        if (currentJid && currentDeviceId) openChat(currentJid);
+      const filtered = allConversations.filter(c => {
+        const jid = (c.remote_jid || '').toLowerCase();
+        const msg = (c.last_message || '').toLowerCase();
+        return jid.includes(query) || msg.includes(query);
       });
-    })();
+      renderConversations(filtered);
+    }
+
+    // --- Select Conversation & Load Messages ---
+    function selectConversation(jid) {
+      currentJid = jid;
+      currentPage = 1;
+      hasMoreMessages = true;
+
+      // Update active state in conversation list
+      document.querySelectorAll('.conversation-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.jid === jid);
+      });
+
+      // Show chat header
+      const displayName = jid.replace(/@s\.whatsapp\.net$/, '').replace(/@g\.us$/, ' (Group)');
+      document.getElementById('chat-contact-name').textContent = displayName;
+      document.getElementById('chat-contact-jid').textContent = jid;
+      document.getElementById('chat-header').style.display = 'flex';
+      document.getElementById('chat-input-area').style.display = 'flex';
+
+      loadMessages(currentDeviceId, jid, 1, true);
+    }
+
+    async function loadMessages(deviceId, jid, page, reset) {
+      if (loadingMessages) return;
+      loadingMessages = true;
+
+      const area = document.getElementById('message-area');
+      if (reset) {
+        area.innerHTML = '<div class="loading-placeholder"><p>Memuatkan mesej...</p></div>';
+      }
+
+      try {
+        const encodedJid = encodeURIComponent(jid);
+        const res = await api(`/chat/${deviceId}/messages/${encodedJid}?page=${page}&limit=50`);
+        if (res.success) {
+          const messages = res.data || [];
+          if (reset) {
+            area.innerHTML = '';
+          }
+          if (messages.length < 50) {
+            hasMoreMessages = false;
+          }
+
+          // Render messages (oldest first)
+          const sortedMessages = [...messages].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+          if (reset) {
+            sortedMessages.forEach(m => {
+              area.insertAdjacentHTML('beforeend', createMessageBubble(m));
+            });
+            scrollToBottom();
+          } else {
+            // Prepend older messages
+            const prevScrollHeight = area.scrollHeight;
+            sortedMessages.reverse().forEach(m => {
+              area.insertAdjacentHTML('afterbegin', createMessageBubble(m));
+            });
+            // Maintain scroll position
+            area.scrollTop = area.scrollHeight - prevScrollHeight;
+          }
+
+          currentPage = page;
+        }
+      } catch(err) {
+        if (reset) {
+          area.innerHTML = '<div class="empty-state-sm"><p>Gagal muat mesej</p></div>';
+        }
+      } finally {
+        loadingMessages = false;
+      }
+    }
+
+    function createMessageBubble(msg) {
+      const isMe = msg.from_me === 1 || msg.from_me === true;
+      const bubbleClass = isMe ? 'message-bubble sent' : 'message-bubble received';
+      const text = escapeHtml(msg.message || '');
+      const time = msg.timestamp ? formatTime(msg.timestamp) : '';
+      return `
+        <div class="${bubbleClass}">
+          <div class="bubble-text">${text}</div>
+          <div class="bubble-time">${time}</div>
+        </div>
+      `;
+    }
+
+    function scrollToBottom() {
+      const area = document.getElementById('message-area');
+      requestAnimationFrame(() => {
+        area.scrollTop = area.scrollHeight;
+      });
+    }
+
+    // Load older messages on scroll up
+    document.getElementById('message-area').addEventListener('scroll', function() {
+      if (this.scrollTop === 0 && hasMoreMessages && !loadingMessages && currentDeviceId && currentJid) {
+        loadMessages(currentDeviceId, currentJid, currentPage + 1, false);
+      }
+    });
+
+    // --- Send Message ---
+    async function sendMessage() {
+      if (!currentDeviceId || !currentJid) return;
+
+      const input = document.getElementById('message-input');
+      const message = input.value.trim();
+      if (!message) return;
+
+      const btn = document.getElementById('sendBtn');
+      btn.disabled = true;
+
+      try {
+        const res = await api(`/chat/${currentDeviceId}/send`, {
+          method: 'POST',
+          body: JSON.stringify({ jid: currentJid, message })
+        });
+        if (res.success) {
+          input.value = '';
+          input.style.height = 'auto';
+          // Append sent message bubble
+          const area = document.getElementById('message-area');
+          area.insertAdjacentHTML('beforeend', createMessageBubble({
+            from_me: true,
+            message,
+            timestamp: Math.floor(Date.now() / 1000)
+          }));
+          scrollToBottom();
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal menghantar mesej', 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function handleMessageKeydown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    }
+
+    // Auto-resize textarea
+    document.getElementById('message-input').addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+
+    // --- Utility ---
+    function formatTime(ts) {
+      try {
+        const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
+        const now = new Date();
+        const isToday = d.toDateString() === now.toDateString();
+        if (isToday) {
+          return d.toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' });
+        }
+        return d.toLocaleDateString('ms-MY', { day: '2-digit', month: 'short' }) + ' ' +
+          d.toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' });
+      } catch(e) {
+        return '';
+      }
+    }
+
+    // --- SSE: New Message Handler ---
+    document.addEventListener('sse:new-message', (e) => {
+      const data = e.detail;
+      // If this message is for the current conversation, append bubble
+      if (data.deviceId == currentDeviceId && data.message) {
+        const msg = data.message;
+        const msgJid = msg.remote_jid || msg.remoteJid || '';
+        if (msgJid === currentJid) {
+          const area = document.getElementById('message-area');
+          area.insertAdjacentHTML('beforeend', createMessageBubble(msg));
+          scrollToBottom();
+        }
+        // Update conversation preview in left panel
+        const convItem = document.querySelector(`.conversation-item[data-jid="${msgJid}"]`);
+        if (convItem) {
+          const preview = convItem.querySelector('.conversation-preview');
+          if (preview) {
+            const txt = msg.message || '';
+            preview.textContent = txt.length > 40 ? txt.substring(0, 40) + '...' : txt;
+          }
+        }
+      }
+    });
+
+    // Initial load
+    loadDevices();
   </script>
 </body>
 </html>

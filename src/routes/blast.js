@@ -1,131 +1,153 @@
 const express = require('express');
 const router = express.Router();
-const { db } = require('../database');
-const blastService = require('../whatsapp/blast');
-const { triggerSync } = require('../sync');
+const db = require('../database');
+const { startBlast, stopBlast } = require('../whatsapp/blast');
 
-// Senarai blast jobs
+// GET / — List user's blast jobs
 router.get('/', (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = (page - 1) * limit;
+    const jobs = db.prepare(`
+      SELECT bj.*, d.name AS device_name 
+      FROM blast_jobs bj
+      LEFT JOIN devices d ON bj.device_id = d.id
+      WHERE bj.user_id = ? 
+      ORDER BY bj.created_at DESC
+    `).all(req.user.id);
 
-    const jobs = db.prepare('SELECT * FROM blast_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
-      .all(req.user.id, limit, offset);
-    const total = db.prepare('SELECT COUNT(*) as count FROM blast_jobs WHERE user_id = ?').get(req.user.id).count;
-
-    res.json({ success: true, data: jobs, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+    res.json({ success: true, data: jobs });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('List blast jobs error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Cipta blast baru (accept both field name formats)
+// POST / — Create blast job
 router.post('/', (req, res) => {
   try {
-    const { name, deviceId, message, phones } = req.body;
+    const { deviceId, message, recipients } = req.body;
 
-    // Accept both frontend field names and backend field names
-    const delayMin = req.body.delayMin || req.body.minDelay || 5;
-    const delayMax = req.body.delayMax || req.body.maxDelay || 15;
+    // Accept both naming conventions for delay
+    const delayMin = req.body.delayMin || req.body.minDelay || 1;
+    const delayMax = req.body.delayMax || req.body.maxDelay || 5;
 
-    if (!name) return res.status(400).json({ success: false, error: 'Nama broadcast diperlukan' });
-    if (!deviceId) return res.status(400).json({ success: false, error: 'Sila pilih peranti' });
-    if (!message) return res.status(400).json({ success: false, error: 'Mesej diperlukan' });
-    if (!phones || !Array.isArray(phones) || phones.length === 0) {
-      return res.status(400).json({ success: false, error: 'Senarai nombor diperlukan' });
+    if (!deviceId || !message || !recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ success: false, error: 'deviceId, message, dan recipients diperlukan' });
     }
 
-    // Validate phone numbers
-    const validPhones = phones.map(p => p.replace(/[\s\-\+\(\)]/g, '')).filter(p => /^[1-9]\d{7,14}$/.test(p));
-    if (validPhones.length === 0) {
-      return res.status(400).json({ success: false, error: 'Tiada nombor telefon yang sah' });
-    }
-
+    // Verify device ownership
     const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(deviceId, req.user.id);
-    if (!device) return res.status(403).json({ success: false, error: 'Peranti tidak dijumpai' });
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    }
 
-    const job = blastService.createJob(req.user.id, Number(deviceId), name, message, validPhones, delayMin, delayMax);
-    triggerSync('blast: cipta baru');
+    // Insert blast job
+    const jobResult = db.prepare(`
+      INSERT INTO blast_jobs (user_id, device_id, message, total, delay_min, delay_max) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(req.user.id, deviceId, message, recipients.length, delayMin, delayMax);
+
+    const blastId = jobResult.lastInsertRowid;
+
+    // Insert recipients
+    const insertRecipient = db.prepare('INSERT INTO blast_recipients (blast_id, phone) VALUES (?, ?)');
+    const insertMany = db.transaction((items) => {
+      for (const phone of items) {
+        insertRecipient.run(blastId, phone);
+      }
+    });
+    insertMany(recipients);
+
+    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ?').get(blastId);
+
     res.json({ success: true, data: job });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Create blast job error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Detail blast job
+// GET /:id — Blast detail with recipients (paginated)
 router.get('/:id', (req, res) => {
   try {
-    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
+    const { id } = req.params;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
 
-    const recipients = db.prepare('SELECT * FROM blast_recipients WHERE blast_id = ?').all(job.id);
-    res.json({ success: true, data: { ...job, recipients } });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+    const job = db.prepare(`
+      SELECT bj.*, d.name AS device_name 
+      FROM blast_jobs bj
+      LEFT JOIN devices d ON bj.device_id = d.id
+      WHERE bj.id = ? AND bj.user_id = ?
+    `).get(id, req.user.id);
 
-// Start blast
-router.post('/:id/start', async (req, res) => {
-  try {
-    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
+    if (!job) {
+      return res.status(404).json({ success: false, error: 'Blast job tidak dijumpai' });
+    }
 
-    blastService.startJob(Number(req.params.id)).catch(err => {
-      console.error(`[Blast] Ralat menjalankan blast: ${err.message}`);
+    const total = db.prepare('SELECT COUNT(*) AS count FROM blast_recipients WHERE blast_id = ?').get(id).count;
+
+    const recipients = db.prepare(`
+      SELECT * FROM blast_recipients 
+      WHERE blast_id = ? 
+      ORDER BY id ASC 
+      LIMIT ? OFFSET ?
+    `).all(id, limit, offset);
+
+    res.json({
+      success: true,
+      data: { job, recipients, page, limit, total }
     });
-    triggerSync('blast: mula');
-    res.json({ success: true, data: { message: 'Broadcast dimulakan' } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Get blast detail error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Pause blast
-router.post('/:id/pause', (req, res) => {
+// POST /:id/start — Start blast
+router.post('/:id/start', (req, res) => {
   try {
-    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
+    const { id } = req.params;
 
-    blastService.pauseJob(Number(req.params.id));
-    triggerSync('blast: jeda');
-    res.json({ success: true, data: { message: 'Broadcast dijedakan' } });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Cancel blast
-router.post('/:id/cancel', (req, res) => {
-  try {
-    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
-
-    blastService.cancelJob(Number(req.params.id));
-    triggerSync('blast: batal');
-    res.json({ success: true, data: { message: 'Broadcast dibatalkan' } });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Delete blast
-router.delete('/:id', (req, res) => {
-  try {
-    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!job) return res.status(404).json({ success: false, error: 'Broadcast tidak dijumpai' });
+    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!job) {
+      return res.status(404).json({ success: false, error: 'Blast job tidak dijumpai' });
+    }
 
     if (job.status === 'running') {
-      blastService.cancelJob(Number(req.params.id));
+      return res.status(400).json({ success: false, error: 'Blast sudah sedang berjalan' });
     }
-    db.prepare('DELETE FROM blast_recipients WHERE blast_id = ?').run(job.id);
-    db.prepare('DELETE FROM blast_jobs WHERE id = ?').run(job.id);
-    triggerSync('blast: padam');
-    res.json({ success: true, data: { message: 'Broadcast dipadam' } });
+
+    if (job.status === 'completed') {
+      return res.status(400).json({ success: false, error: 'Blast sudah selesai' });
+    }
+
+    // Start blast asynchronously (don't await)
+    startBlast(parseInt(id));
+
+    res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Start blast error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
+  }
+});
+
+// POST /:id/stop — Stop blast
+router.post('/:id/stop', (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const job = db.prepare('SELECT * FROM blast_jobs WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!job) {
+      return res.status(404).json({ success: false, error: 'Blast job tidak dijumpai' });
+    }
+
+    stopBlast(parseInt(id));
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Stop blast error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 

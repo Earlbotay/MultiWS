@@ -3,109 +3,287 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Checker</title>
+  <title>MultiChat — Checker Nombor</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="sidebar" id="sidebar"></div>
-  <div class="main-content">
+  <div id="sidebar"></div>
+
+  <main class="main-content">
     <div class="page-header">
-      <div>
-        <h1 class="page-title">✅ Checker</h1>
-        <p class="page-subtitle">Semak status nombor WhatsApp</p>
-      </div>
+      <h1>🔍 Checker Nombor WhatsApp</h1>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Semak Nombor</h3>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Peranti</label>
-        <select class="form-select" id="checkerDevice"></select>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Senarai Nombor (satu per baris)</label>
-        <textarea class="form-textarea" id="checkerPhones" placeholder="60123456789&#10;60198765432&#10;..." rows="6"></textarea>
-      </div>
-
-      <button class="btn btn-primary" id="checkBtn" onclick="checkNumbers()">✅ Semak Nombor</button>
-    </div>
-
-    <div class="card mt-4" id="resultsCard" style="display:none;">
-      <div class="card-header">
-        <h3 class="card-title">Keputusan</h3>
-        <div class="flex gap-2">
-          <span class="badge badge-success" id="validCount">0 sah</span>
-          <span class="badge badge-danger" id="invalidCount">0 tidak sah</span>
+    <!-- Single Check Section -->
+    <div class="section-card">
+      <h2>📱 Semakan Tunggal</h2>
+      <div class="form-row" style="align-items:flex-end;">
+        <div class="form-group form-group-half">
+          <label for="singleDevice">Peranti</label>
+          <select id="singleDevice" class="form-control" required>
+            <option value="">-- Pilih Peranti --</option>
+          </select>
+        </div>
+        <div class="form-group form-group-half">
+          <label for="singlePhone">Nombor Telefon</label>
+          <input type="text" id="singlePhone" class="form-control" placeholder="cth: 60123456789">
+        </div>
+        <div class="form-group" style="flex:0 0 auto;">
+          <button class="btn btn-primary" onclick="checkSingle()" id="singleCheckBtn">🔍 Semak</button>
         </div>
       </div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>Nombor</th><th>Status</th></tr></thead>
-          <tbody id="resultsBody"></tbody>
+      <div id="singleResult" style="margin-top:12px;display:none;">
+        <div class="result-box" id="singleResultBox"></div>
+      </div>
+    </div>
+
+    <!-- Bulk Check Section -->
+    <div class="section-card">
+      <h2>📋 Semakan Pukal</h2>
+      <div class="form-row" style="align-items:flex-start;">
+        <div class="form-group form-group-half">
+          <label for="bulkDevice">Peranti</label>
+          <select id="bulkDevice" class="form-control" required>
+            <option value="">-- Pilih Peranti --</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="bulkNumbers">Senarai Nombor</label>
+        <textarea id="bulkNumbers" class="form-control" rows="6" placeholder="Satu nombor setiap baris, contoh:&#10;60123456789&#10;60198765432&#10;60112233445"></textarea>
+        <small class="text-secondary">Masukkan satu nombor telefon setiap baris (termasuk kod negara)</small>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="checkBulk()" id="bulkCheckBtn">🔍 Semak Semua</button>
+        <button class="btn btn-outline" onclick="exportCSV()" id="exportBtn" style="display:none;">📥 Eksport CSV</button>
+      </div>
+
+      <!-- Bulk Results Table -->
+      <div id="bulkResultsWrap" style="display:none;">
+        <h3 style="margin-bottom:8px;">Hasil Semakan</h3>
+        <div class="table-responsive">
+          <table class="table" id="bulk-results-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Nombor</th>
+                <th>Status</th>
+                <th>JID</th>
+              </tr>
+            </thead>
+            <tbody id="bulk-results-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Saved Contacts Section -->
+    <div class="section-card">
+      <h2>👥 Kenalan Tersimpan</h2>
+      <div class="table-responsive">
+        <table class="table" id="contacts-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Nombor</th>
+              <th>Nama</th>
+              <th>WhatsApp</th>
+              <th>Tarikh Ditambah</th>
+            </tr>
+          </thead>
+          <tbody id="contacts-tbody">
+            <tr>
+              <td colspan="5" class="text-center text-secondary">Memuatkan...</td>
+            </tr>
+          </tbody>
         </table>
       </div>
     </div>
-  </div>
+  </main>
 
+  <div id="toast-container"></div>
   <script src="/js/app.js"></script>
   <script>
+    loadSidebar();
+    initSSE();
+
+    let bulkResults = [];
+
+    // --- Load Devices (connected only) ---
     async function loadDevices() {
       try {
-        const res = await api('/api/devices');
-        document.getElementById('checkerDevice').innerHTML = (res.data || []).map(d =>
-          `<option value="${d.id}">${escapeHtml(d.name)} ${d.status === 'connected' ? '🟢' : '🔴'}</option>`
-        ).join('');
-      } catch (err) {}
-    }
-
-    async function checkNumbers() {
-      const phones = document.getElementById('checkerPhones').value.split('\n').map(p => p.trim()).filter(Boolean);
-      if (phones.length === 0) return showToast('Sila masukkan nombor untuk disemak', 'warning');
-
-      const deviceId = document.getElementById('checkerDevice').value;
-      if (!deviceId) return showToast('Sila pilih peranti', 'warning');
-
-      const btn = document.getElementById('checkBtn');
-      btn.disabled = true;
-      btn.innerHTML = '<span class="progress-ring"></span> Menyemak...';
-
-      try {
-        const res = await api('/api/checker/check', {
-          method: 'POST',
-          body: JSON.stringify({ deviceId: parseInt(deviceId), phones })
-        });
-
-        const results = res.data || [];
-        const valid = results.filter(r => r.exists);
-        const invalid = results.filter(r => !r.exists);
-
-        document.getElementById('validCount').textContent = `${valid.length} sah`;
-        document.getElementById('invalidCount').textContent = `${invalid.length} tidak sah`;
-        document.getElementById('resultsBody').innerHTML = results.map(r => `
-          <tr>
-            <td>${escapeHtml(r.phone)}</td>
-            <td><span class="badge badge-${r.exists ? 'success' : 'danger'}">${r.exists ? 'WhatsApp aktif' : 'Tiada WhatsApp'}</span></td>
-          </tr>
-        `).join('');
-
-        document.getElementById('resultsCard').style.display = '';
-        showToast(`Semakan selesai: ${valid.length} sah, ${invalid.length} tidak sah`, 'success');
-      } catch (err) {
-        showToast(err.message, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '✅ Semak Nombor';
+        const res = await api('/devices');
+        if (res.success) {
+          const connected = (res.data || []).filter(d => d.status === 'connected');
+          const options = '<option value="">-- Pilih Peranti --</option>' +
+            connected.map(d => `<option value="${d.id}">${escapeHtml(d.name)}${d.phone ? ' (' + escapeHtml(d.phone) + ')' : ''}</option>`).join('');
+          document.getElementById('singleDevice').innerHTML = options;
+          document.getElementById('bulkDevice').innerHTML = options;
+        }
+      } catch(err) {
+        // Silently fail
       }
     }
 
-    (async () => {
-      if (!await initPage('checker')) return;
-      await loadDevices();
-    })();
+    // --- Single Check ---
+    async function checkSingle() {
+      const deviceId = document.getElementById('singleDevice').value;
+      const phone = document.getElementById('singlePhone').value.trim();
+
+      if (!deviceId) { showToast('Sila pilih peranti', 'error'); return; }
+      if (!phone) { showToast('Sila masukkan nombor telefon', 'error'); return; }
+
+      const btn = document.getElementById('singleCheckBtn');
+      btn.disabled = true;
+      btn.textContent = 'Menyemak...';
+
+      const resultDiv = document.getElementById('singleResult');
+      const resultBox = document.getElementById('singleResultBox');
+
+      try {
+        const res = await api('/checker/check', {
+          method: 'POST',
+          body: JSON.stringify({ deviceId, phone })
+        });
+        resultDiv.style.display = 'block';
+        if (res.success && res.data) {
+          const d = res.data;
+          if (d.exists || d.has_whatsapp === 1 || d.hasWhatsapp) {
+            resultBox.innerHTML = `<span class="text-success" style="font-size:1.2em;">✅ Ada WhatsApp</span>` +
+              (d.jid ? `<br><span class="text-secondary">JID: ${escapeHtml(d.jid)}</span>` : '');
+          } else {
+            resultBox.innerHTML = `<span class="text-danger" style="font-size:1.2em;">❌ Tiada WhatsApp</span>`;
+          }
+        } else {
+          resultBox.innerHTML = `<span class="text-secondary">Tiada data</span>`;
+        }
+      } catch(err) {
+        resultDiv.style.display = 'block';
+        resultBox.innerHTML = `<span class="text-danger">❌ Ralat: ${escapeHtml(err.message || 'Gagal menyemak')}</span>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Semak';
+      }
+    }
+
+    // --- Bulk Check ---
+    async function checkBulk() {
+      const deviceId = document.getElementById('bulkDevice').value;
+      const numbersRaw = document.getElementById('bulkNumbers').value.trim();
+
+      if (!deviceId) { showToast('Sila pilih peranti', 'error'); return; }
+      if (!numbersRaw) { showToast('Sila masukkan senarai nombor', 'error'); return; }
+
+      const phones = numbersRaw.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+      if (phones.length === 0) { showToast('Senarai nombor kosong', 'error'); return; }
+
+      const btn = document.getElementById('bulkCheckBtn');
+      btn.disabled = true;
+      btn.textContent = 'Menyemak...';
+
+      try {
+        const res = await api('/checker/check-bulk', {
+          method: 'POST',
+          body: JSON.stringify({ deviceId, phones })
+        });
+        if (res.success) {
+          bulkResults = res.data || [];
+          renderBulkResults(bulkResults);
+          document.getElementById('bulkResultsWrap').style.display = 'block';
+          document.getElementById('exportBtn').style.display = 'inline-flex';
+          showToast(`Semakan selesai: ${bulkResults.length} nombor`, 'success');
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal menyemak nombor', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Semak Semua';
+      }
+    }
+
+    function renderBulkResults(results) {
+      const tbody = document.getElementById('bulk-results-tbody');
+      if (!results.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-secondary">Tiada hasil</td></tr>';
+        return;
+      }
+      tbody.innerHTML = results.map((r, i) => {
+        const hasWa = r.exists || r.has_whatsapp === 1 || r.hasWhatsapp;
+        return `
+          <tr>
+            <td>${i + 1}</td>
+            <td>${escapeHtml(r.phone || r.number || '')}</td>
+            <td>${hasWa
+              ? '<span class="status-badge connected">✅ Ada</span>'
+              : '<span class="status-badge disconnected">❌ Tiada</span>'
+            }</td>
+            <td class="text-secondary">${escapeHtml(r.jid || '—')}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // --- Export CSV ---
+    function exportCSV() {
+      if (!bulkResults.length) { showToast('Tiada hasil untuk dieksport', 'error'); return; }
+
+      const header = 'Nombor,Status,JID';
+      const rows = bulkResults.map(r => {
+        const hasWa = r.exists || r.has_whatsapp === 1 || r.hasWhatsapp;
+        const phone = (r.phone || r.number || '').replace(/,/g, '');
+        const status = hasWa ? 'Ada' : 'Tiada';
+        const jid = (r.jid || '').replace(/,/g, '');
+        return `${phone},${status},${jid}`;
+      });
+
+      const csv = [header, ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `checker_results_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('CSV berjaya dimuat turun', 'success');
+    }
+
+    // --- Load Contacts ---
+    async function loadContacts() {
+      try {
+        const res = await api('/checker/contacts');
+        if (res.success) {
+          const contacts = res.data || [];
+          const tbody = document.getElementById('contacts-tbody');
+          if (!contacts.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary">Tiada kenalan tersimpan</td></tr>';
+            return;
+          }
+          tbody.innerHTML = contacts.map((c, i) => {
+            let waStatus = '<span class="text-secondary">—</span>';
+            if (c.has_whatsapp === 1) waStatus = '<span class="status-badge connected">✅ Ada</span>';
+            else if (c.has_whatsapp === 0) waStatus = '<span class="status-badge disconnected">❌ Tiada</span>';
+            const date = c.created_at ? new Date(c.created_at).toLocaleString('ms-MY') : '—';
+            return `
+              <tr>
+                <td>${i + 1}</td>
+                <td>${escapeHtml(c.phone || '')}</td>
+                <td>${escapeHtml(c.name || '—')}</td>
+                <td>${waStatus}</td>
+                <td>${date}</td>
+              </tr>
+            `;
+          }).join('');
+        }
+      } catch(err) {
+        showToast('Gagal muat senarai kenalan', 'error');
+      }
+    }
+
+    // Initial load
+    loadDevices();
+    loadContacts();
   </script>
 </body>
 </html>

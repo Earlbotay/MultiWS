@@ -1,27 +1,23 @@
 {
   "name": "multichat",
-  "version": "2.0.0",
-  "description": "Platform automasi WhatsApp",
+  "version": "1.0.0",
+  "description": "Sistem MultiChat WhatsApp — pengurusan multi-peranti",
   "main": "src/server.js",
   "scripts": {
-    "start": "NODE_ENV=production node src/server.js",
-    "dev": "node src/server.js",
-    "setup": "bash scripts/setup-data-repo.sh",
-    "sync": "bash scripts/sync-data.sh"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.16",
-    "express": "^4.21.2",
+    "bcrypt": "^5.1.1",
     "better-sqlite3": "^11.7.0",
-    "bcryptjs": "^2.4.3",
-    "cookie-parser": "^1.4.6",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "express-session": "^1.18.1",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "pino": "^9.5.0",
     "qrcode": "^1.5.4",
-    "multer": "^1.4.5-lts.1",
-    "pino": "^9.6.0",
-    "dotenv": "^16.4.7",
-    "express-rate-limit": "^7.1.5",
-    "simple-git": "^3.27.0"
+    "simple-git": "^3.27.0",
+    "archiver": "^7.0.1"
   }
 }

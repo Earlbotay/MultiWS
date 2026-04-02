@@ -1,151 +1,122 @@
 const express = require('express');
-const path = require('path');
+const cookieParser = require('cookie-parser');
 const cors = require('cors');
+const path = require('path');
 const config = require('./config');
-require('./logger'); // Activate file logging
-const { db } = require('./database');
-const { requireAuth, requireAdmin } = require('./auth');
-const events = require('./events');
+const { db, seedAdmin } = require('./database');
+const { requireAuth } = require('./auth');
+const { addClient } = require('./events');
+const { initSync, syncData } = require('./sync');
+const WAManager = require('./whatsapp/manager');
+const { getUserStats } = require('./whatsapp/status');
+require('./logger');
 
 const app = express();
 
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-const cookieParser = require('cookie-parser');
+// ── Middleware ──────────────────────────────────────────────
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser(config.SESSION_SECRET));
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.static(path.join(__dirname, '../public')));
 
-// Static files
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// ── Routes ─────────────────────────────────────────────────
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ success: true, status: 'ok', uptime: process.uptime(), timestamp: Date.now() });
-});
-
-// Auth routes (no middleware needed)
+// 1. Auth routes (public — no requireAuth)
 app.use('/api/auth', require('./routes/auth'));
 
-// Protected routes - apply requireAuth globally
-app.use('/api/devices', requireAuth, require('./routes/devices'));
-app.use('/api/chat', requireAuth, require('./routes/chat'));
-app.use('/api/blast', requireAuth, require('./routes/blast'));
-app.use('/api/warmer', requireAuth, require('./routes/warmer'));
-app.use('/api/checker', requireAuth, require('./routes/checker'));
-app.use('/api/autoreply', requireAuth, require('./routes/autoReply'));
-app.use('/api/status', requireAuth, require('./routes/status'));
-
-// Admin routes
-app.use('/api/admin', requireAdmin, require('./routes/admin'));
-
-// Dashboard stats endpoint
-app.get('/api/stats', requireAuth, (req, res) => {
-  try {
-    const userId = req.user.id;
-    const devices = db.prepare('SELECT COUNT(*) as count FROM devices WHERE user_id = ?').get(userId);
-    const messages = db.prepare('SELECT COUNT(*) as count FROM messages WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)').get(userId);
-    const autoReplies = db.prepare('SELECT COUNT(*) as count FROM auto_replies WHERE user_id = ? AND is_active = 1').get(userId);
-    const blasts = db.prepare('SELECT COUNT(*) as count FROM blast_jobs WHERE user_id = ? AND status = ?').get(userId, 'running');
-    const activeDevices = db.prepare("SELECT COUNT(*) as count FROM devices WHERE user_id = ? AND status = 'connected'").get(userId);
-
-    res.json({
-      success: true,
-      data: {
-        totalDevices: devices.count,
-        activeDevices: activeDevices.count,
-        totalMessages: messages.count,
-        activeAutoReplies: autoReplies.count,
-        runningBlasts: blasts.count
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+// 2. Health check (public — no requireAuth)
+app.get('/api/health', (req, res) => {
+  const wam = WAManager.getInstance();
+  const sessions = wam.sessions || new Map();
+  let devicesConnected = 0;
+  sessions.forEach((session) => {
+    if (session && session.connected) devicesConnected++;
+  });
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    devicesConnected
+  });
 });
 
-// SSE endpoint for real-time updates
+// 3. SSE endpoint (requires auth)
 app.get('/api/events', requireAuth, (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
-  events.addClient(req.user.id, res);
-  res.write('event: connected\ndata: {}\n\n');
-
-  // Keep-alive every 30s
-  const keepAlive = setInterval(() => {
-    try { res.write(': keepalive\n\n'); } catch (e) { clearInterval(keepAlive); }
-  }, 30000);
-  res.on('close', () => clearInterval(keepAlive));
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+  res.write('data: connected\n\n');
+  addClient(req.user.id, res);
 });
 
-// 404 handler for API
-app.use('/api', (req, res) => {
-  res.status(404).json({ success: false, error: 'Endpoint API tidak dijumpai' });
+// 4. Global auth for all remaining /api/* routes
+app.use('/api', requireAuth);
+
+// 5-12. Protected API routes
+app.use('/api/devices', require('./routes/devices'));
+app.use('/api/chat', require('./routes/chat'));
+app.use('/api/blast', require('./routes/blast'));
+app.use('/api/warmer', require('./routes/warmer'));
+app.use('/api/checker', require('./routes/checker'));
+app.use('/api/auto-reply', require('./routes/autoReply'));
+app.use('/api/status', require('./routes/status'));
+app.use('/api/admin', require('./routes/admin'));
+
+// 13. Stats endpoint (auth already covered by global middleware)
+app.get('/api/stats', async (req, res) => {
+  const stats = getUserStats(req.user.id);
+  res.json({
+    success: true,
+    data: {
+      username: req.user.username,
+      role: req.user.role,
+      ...stats
+    }
+  });
 });
 
-// SPA fallback
+// 14. SPA fallback
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// Initialize services
-const autoReplyService = require('./whatsapp/autoReply');
-const { initSync, syncNow } = require('./sync');
-
-const PORT = config.PORT;
-app.listen(PORT, async () => {
-  console.log(`Multichat berjalan di port ${PORT}`);
-  console.log(`Direktori data: ${config.DATA_DIR}`);
-
+// ── Startup ────────────────────────────────────────────────
+async function start() {
+  await seedAdmin();
   await initSync();
 
-  // Auto-reconnect devices
+  const wam = WAManager.getInstance();
+  await wam.reconnectAll();
+
+  app.listen(config.PORT, () => {
+    console.log(`MultiChat berjalan pada port ${config.PORT}`);
+  });
+}
+start().catch(console.error);
+
+// ── Graceful Shutdown ──────────────────────────────────────
+async function shutdown() {
+  console.log('Shutting down gracefully…');
   try {
-    const fs = require('fs');
-    const waManager = require('./whatsapp/manager');
-    const devices = db.prepare('SELECT * FROM devices').all();
-
-    for (const device of devices) {
-      const authDir = path.join(config.SESSIONS_DIR, `device_${device.id}`);
-      const credsFile = path.join(authDir, 'creds.json');
-
-      if (fs.existsSync(credsFile)) {
-        console.log(`[Auto-Reconnect] Menyambung semula peranti #${device.id} (${device.name})...`);
-        try {
-          await waManager.startSession(device.id, 'qr', null);
-          console.log(`[Auto-Reconnect] Peranti #${device.id} berjaya dimulakan`);
-        } catch (err) {
-          console.error(`[Auto-Reconnect] Gagal menyambung peranti #${device.id}: ${err.message}`);
-          db.prepare("UPDATE devices SET status = ?, updated_at = datetime('now') WHERE id = ?")
-            .run('disconnected', device.id);
-        }
-        await new Promise(r => setTimeout(r, 3000));
-      } else {
-        db.prepare("UPDATE devices SET status = ?, updated_at = datetime('now') WHERE id = ?")
-          .run('disconnected', device.id);
-      }
-    }
-    console.log('[Auto-Reconnect] Proses sambung semula selesai');
+    await syncData();
   } catch (err) {
-    console.error('[Auto-Reconnect] Ralat:', err.message);
+    console.error('Sync error during shutdown:', err);
   }
-});
-
-// Graceful shutdown
-async function gracefulShutdown(signal) {
-  console.log(`\n[Shutdown] Menerima ${signal}. Menyimpan data...`);
   try {
-    await syncNow('sync: penutupan server');
-    console.log('[Shutdown] Data berjaya disimpan.');
+    WAManager.getInstance().disconnectAll();
   } catch (err) {
-    console.error('[Shutdown] Gagal simpan data:', err.message);
+    console.error('Disconnect error during shutdown:', err);
+  }
+  try {
+    db.close();
+  } catch (err) {
+    console.error('DB close error during shutdown:', err);
   }
   process.exit(0);
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

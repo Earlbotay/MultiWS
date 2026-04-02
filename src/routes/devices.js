@@ -1,184 +1,166 @@
 const express = require('express');
 const router = express.Router();
-const QRCode = require('qrcode');
-const { db } = require('../database');
-const waManager = require('../whatsapp/manager');
-const { triggerSync } = require('../sync');
-const events = require('../events');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const archiver = require('archiver');
+const db = require('../database');
 const config = require('../config');
+const WAManager = require('../whatsapp/manager');
 
-// Regex untuk validasi nombor telefon
-const PHONE_REGEX = /^[1-9]\d{7,14}$/;
-
-function cleanPhone(phone) {
-  if (!phone) return null;
-  return phone.replace(/[\s\-\+\(\)]/g, '');
-}
-
-// Senaraikan peranti
+// GET / — List user's devices
 router.get('/', (req, res) => {
   try {
     const devices = db.prepare('SELECT * FROM devices WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
-    const devicesWithStatus = devices.map(d => ({
-      ...d,
-      status: waManager.getStatus(d.id) || d.status
-    }));
-    res.json({ success: true, data: devicesWithStatus });
+    res.json({ success: true, data: devices });
   } catch (err) {
-    console.error(`[Peranti] Ralat menyenaraikan peranti: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('List devices error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Tambah peranti dan mulakan sesi
-router.post('/', async (req, res) => {
+// POST / — Add device
+router.post('/', (req, res) => {
   try {
-    const { name, phone, method } = req.body;
-    if (!name || !name.trim()) return res.status(400).json({ success: false, error: 'Nama peranti diperlukan' });
+    const { name } = req.body;
 
-    const connectMethod = method === 'pairing' ? 'pairing' : 'qr';
-    let cleanedPhone = cleanPhone(phone);
-
-    // Untuk kaedah pairing, nombor telefon wajib
-    if (connectMethod === 'pairing') {
-      if (!cleanedPhone) return res.status(400).json({ success: false, error: 'Nombor telefon diperlukan untuk kaedah pairing' });
-      if (!PHONE_REGEX.test(cleanedPhone)) return res.status(400).json({ success: false, error: 'Format nombor telefon tidak sah. Gunakan format: 60123456789' });
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Nama peranti diperlukan' });
     }
 
-    // Semak nombor telefon pendua (jika diberikan)
-    if (cleanedPhone) {
-      const existing = db.prepare('SELECT * FROM devices WHERE phone = ? AND user_id = ?').get(cleanedPhone, req.user.id);
-      if (existing) {
-        return res.status(400).json({ success: false, error: `Nombor ${cleanedPhone} sudah didaftarkan pada peranti "${existing.name}"` });
-      }
+    const trimmedName = name.trim();
+
+    // Check duplicate name for this user
+    const existing = db.prepare('SELECT id FROM devices WHERE user_id = ? AND name = ?').get(req.user.id, trimmedName);
+    if (existing) {
+      return res.status(409).json({ success: false, error: 'Peranti dengan nama ini sudah wujud' });
     }
 
-    const result = db.prepare('INSERT INTO devices (user_id, name, phone, status) VALUES (?, ?, ?, ?)')
-      .run(req.user.id, name.trim(), cleanedPhone || null, 'connecting');
+    const result = db.prepare('INSERT INTO devices (user_id, name) VALUES (?, ?)').run(req.user.id, trimmedName);
     const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(result.lastInsertRowid);
 
-    console.log(`[Peranti] Peranti baru ditambah: "${name}" (ID: ${device.id}, Kaedah: ${connectMethod})`);
-
-    await waManager.startSession(device.id, connectMethod, cleanedPhone);
-
-    triggerSync('peranti: tambah baru');
-    res.json({ success: true, data: { ...device, method: connectMethod } });
+    res.json({ success: true, data: device });
   } catch (err) {
-    console.error(`[Peranti] Ralat menambah peranti: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Add device error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 
-// Sambung semula peranti
+// POST /:id/connect — Connect device
 router.post('/:id/connect', async (req, res) => {
   try {
-    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    const { id } = req.params;
+    const { method } = req.body;
 
-    const method = req.body.method || 'qr';
-    await waManager.startSession(device.id, method, device.phone);
-
-    triggerSync('peranti: sambung semula');
-    console.log(`[Peranti] Sesi dimulakan untuk peranti #${device.id} (kaedah: ${method})`);
-    res.json({ success: true, data: { message: 'Menyambung...', method } });
-  } catch (err) {
-    console.error(`[Peranti] Ralat memulakan sesi: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Dapatkan kod QR
-router.get('/:id/qr', async (req, res) => {
-  try {
-    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
-
-    const qr = waManager.getQR(device.id);
-    const pairingCode = waManager.getPairingCode(device.id);
-    const status = waManager.getStatus(device.id);
-    const error = waManager.getError(device.id);
-
-    let qrDataUrl = null;
-    if (qr) {
-      qrDataUrl = await QRCode.toDataURL(qr);
+    if (!method || !['qr', 'pairing'].includes(method)) {
+      return res.status(400).json({ success: false, error: 'Kaedah sambungan tidak sah. Gunakan "qr" atau "pairing".' });
     }
 
-    res.json({ success: true, qr: qrDataUrl, pairingCode, status, error });
+    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    }
+
+    const manager = WAManager.getInstance();
+    await manager.connect(parseInt(id), req.user.id, method);
+
+    res.json({ success: true, message: 'Sambungan dimulakan' });
   } catch (err) {
-    console.error(`[Peranti] Ralat mendapatkan kod QR: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Connect device error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Ralat server' });
   }
 });
 
-// Dapatkan status peranti
-router.get('/:id/status', (req, res) => {
-  try {
-    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
-
-    const liveStatus = waManager.getStatus(device.id);
-    res.json({ success: true, data: { id: device.id, status: liveStatus } });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Putuskan sambungan
+// POST /:id/disconnect — Disconnect device
 router.post('/:id/disconnect', async (req, res) => {
   try {
-    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    const { id } = req.params;
 
-    await waManager.stopSession(device.id);
-    triggerSync('peranti: putus sambungan');
-    events.emit(req.user.id, 'device-status', { deviceId: device.id, status: 'disconnected' });
-    res.json({ success: true, data: { message: 'Peranti diputuskan' } });
-  } catch (err) {
-    console.error(`[Peranti] Ralat memutuskan sambungan: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Padam peranti
-router.delete('/:id', async (req, res) => {
-  try {
-    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
-
-    await waManager.deleteSession(device.id);
-    triggerSync('peranti: padam');
-    events.emit(req.user.id, 'device-status', { deviceId: device.id, status: 'deleted' });
-    res.json({ success: true, data: { message: 'Peranti dipadam' } });
-  } catch (err) {
-    console.error(`[Peranti] Ralat memadam peranti: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Muat turun data sesi peranti (backup)
-router.get('/:id/download', (req, res) => {
-  try {
-    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
-    if (!device) return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
-
-    const authDir = path.join(config.SESSIONS_DIR, `device_${device.id}`);
-    if (!fs.existsSync(authDir)) {
-      return res.status(404).json({ success: false, error: 'Tiada data sesi untuk peranti ini' });
+    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
     }
 
-    const tmpFile = `/tmp/device_${device.id}_session_${Date.now()}.tar.gz`;
-    execSync(`tar -czf "${tmpFile}" -C "${config.SESSIONS_DIR}" "device_${device.id}"`);
+    const manager = WAManager.getInstance();
+    await manager.disconnect(parseInt(id));
 
-    const safeName = device.name.replace(/[^a-zA-Z0-9_\-]/g, '_');
-    res.download(tmpFile, `sesi_${safeName}.tar.gz`, () => {
-      try { fs.unlinkSync(tmpFile); } catch(e) {}
-    });
+    res.json({ success: true });
   } catch (err) {
-    console.error(`[Peranti] Ralat memuat turun sesi: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Disconnect device error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Ralat server' });
+  }
+});
+
+// DELETE /:id — Delete device
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    }
+
+    // Disconnect if connected
+    const manager = WAManager.getInstance();
+    try {
+      await manager.disconnect(parseInt(id));
+    } catch (e) {
+      // Ignore disconnect errors during deletion
+    }
+
+    // Delete from DB
+    db.prepare('DELETE FROM devices WHERE id = ?').run(id);
+
+    // Delete session folder
+    const sessionDir = path.join(config.DATA_DIR, 'sessions', String(id));
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete device error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
+  }
+});
+
+// GET /:id/download — Download session backup
+router.get('/:id/download', (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const device = db.prepare('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Peranti tidak dijumpai' });
+    }
+
+    if (device.status !== 'connected') {
+      return res.status(400).json({ success: false, error: 'Peranti mesti disambungkan untuk memuat turun sesi' });
+    }
+
+    const sessionDir = path.join(config.DATA_DIR, 'sessions', String(id));
+    if (!fs.existsSync(sessionDir)) {
+      return res.status(404).json({ success: false, error: 'Folder sesi tidak dijumpai' });
+    }
+
+    const filename = `session-${device.name.replace(/[^a-zA-Z0-9-_]/g, '_')}-${id}.tar.gz`;
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    const archive = archiver('tar', { gzip: true });
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Ralat semasa membuat arkib' });
+      }
+    });
+
+    archive.pipe(res);
+    archive.directory(sessionDir, false);
+    archive.finalize();
+  } catch (err) {
+    console.error('Download session error:', err);
+    res.status(500).json({ success: false, error: 'Ralat server' });
   }
 });
 

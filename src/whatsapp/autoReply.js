@@ -1,131 +1,91 @@
 const { db } = require('../database');
-const waManager = require('./manager');
-const { triggerSync } = require('../sync');
+const WAManager = require('./manager');
 
-class AutoReplyService {
-  constructor() {
-    console.log('[AutoReply] Servis auto-reply dimulakan');
-    this.init();
-  }
+/**
+ * Process auto-reply rules for an incoming message
+ * @param {number} deviceId - the device that received the message
+ * @param {object} message - raw Baileys message object
+ * @param {string} remoteJid - the sender's JID
+ */
+async function processAutoReply(deviceId, message, remoteJid) {
+  try {
+    // Get device to find user_id
+    const device = db.prepare('SELECT user_id FROM devices WHERE id = ?').get(deviceId);
+    if (!device) return;
 
-  init() {
-    console.log('[AutoReply] Mendaftarkan pengendali mesej untuk auto-reply');
+    // Get active auto-reply rules for this user
+    // Rules where device_id matches this device OR device_id IS NULL (applies to all devices)
+    const rules = db.prepare(`
+      SELECT * FROM auto_replies
+      WHERE user_id = ? AND is_active = 1
+        AND (device_id = ? OR device_id IS NULL)
+      ORDER BY id ASC
+    `).all(device.user_id, deviceId);
 
-    waManager.registerMessageHandler(async (deviceId, message) => {
-      try {
-        // Abaikan mesej yang dihantar sendiri
-        if (message.key.fromMe) return;
+    if (rules.length === 0) return;
 
-        const messageText = message.message?.conversation
-          || message.message?.extendedTextMessage?.text
-          || '';
+    // Extract text from message object
+    const text = message.message?.conversation
+      || message.message?.extendedTextMessage?.text
+      || message.message?.imageMessage?.caption
+      || message.message?.videoMessage?.caption
+      || '';
 
-        if (!messageText) return;
+    if (!text) return;
 
-        // Dapatkan peranti dari pangkalan data
-        const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(deviceId);
-        if (!device) return;
+    const textLower = text.toLowerCase().trim();
 
-        // Dapatkan peraturan auto-reply yang aktif untuk peranti ini
-        const rules = db.prepare(
-          'SELECT * FROM auto_replies WHERE device_id = ? AND is_active = 1 ORDER BY id ASC'
-        ).all(deviceId);
+    // Check each rule for a match (first match wins)
+    for (const rule of rules) {
+      const triggerLower = rule.trigger_word.toLowerCase().trim();
+      let matched = false;
 
-        if (rules.length === 0) return;
-
-        const msgLower = messageText.toLowerCase();
-
-        for (const rule of rules) {
-          const triggerLower = rule.trigger_word.toLowerCase();
-          let matched = false;
-
-          if (rule.match_type === 'exact') {
-            matched = msgLower === triggerLower;
-          } else if (rule.match_type === 'contains') {
-            matched = msgLower.includes(triggerLower);
-          } else if (rule.match_type === 'startswith') {
-            matched = msgLower.startsWith(triggerLower);
-          }
-
-          if (matched) {
-            const senderJid = message.key.remoteJid;
-            console.log(`[AutoReply] Padanan dijumpai untuk peranti ${deviceId}: "${rule.trigger_word}" -> menghantar balasan ke ${senderJid}`);
-
-            await waManager.sendMessage(deviceId, senderJid, { text: rule.reply_message });
-            console.log(`[AutoReply] Balasan berjaya dihantar ke ${senderJid}`);
-            break; // Hanya padankan peraturan pertama
-          }
-        }
-      } catch (err) {
-        console.log(`[AutoReply] Ralat memproses mesej: ${err.message}`);
+      switch (rule.match_type) {
+        case 'exact':
+          matched = textLower === triggerLower;
+          break;
+        case 'contains':
+          matched = textLower.includes(triggerLower);
+          break;
+        case 'startsWith':
+          matched = textLower.startsWith(triggerLower);
+          break;
+        default:
+          matched = textLower.includes(triggerLower);
+          break;
       }
-    });
 
-    console.log('[AutoReply] Pengendali mesej berjaya didaftarkan');
-  }
+      if (matched) {
+        // Get WAManager session to send reply
+        const manager = WAManager.getInstance();
+        const session = manager.getSession(deviceId);
 
-  createRule(userId, deviceId, triggerWord, replyMessage, matchType) {
-    console.log(`[AutoReply] Mencipta peraturan auto-reply: "${triggerWord}" (${matchType})`);
+        if (!session || !session.socket) {
+          console.error(`[AutoReply] Device ${deviceId} not connected, cannot send reply`);
+          return;
+        }
 
-    const result = db.prepare(`
-      INSERT INTO auto_replies (user_id, device_id, trigger_word, reply_message, match_type, is_active)
-      VALUES (?, ?, ?, ?, ?, 1)
-    `).run(userId, deviceId, triggerWord, replyMessage, matchType || 'contains');
+        try {
+          // Send the auto-reply response
+          await session.socket.sendMessage(remoteJid, { text: rule.response });
 
-    const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(result.lastInsertRowid);
-    triggerSync('auto-reply: peraturan baru dicipta');
-    console.log(`[AutoReply] Peraturan #${rule.id} berjaya dicipta`);
-    return rule;
-  }
+          // Save the auto-reply message to messages table
+          db.prepare(
+            'INSERT INTO messages (device_id, remote_jid, from_me, message, timestamp, status) VALUES (?, ?, 1, ?, ?, ?)'
+          ).run(deviceId, remoteJid, rule.response, Math.floor(Date.now() / 1000), 'sent');
 
-  updateRule(ruleId, triggerWord, replyMessage, matchType, isActive) {
-    console.log(`[AutoReply] Mengemaskini peraturan #${ruleId}`);
+          console.log(`[AutoReply] Replied to ${remoteJid} on device ${deviceId} (rule: ${rule.id}, trigger: "${rule.trigger_word}")`);
+        } catch (err) {
+          console.error(`[AutoReply] Failed to send reply to ${remoteJid}:`, err.message);
+        }
 
-    db.prepare(`
-      UPDATE auto_replies 
-      SET trigger_word = ?, reply_message = ?, match_type = ?, is_active = ?
-      WHERE id = ?
-    `).run(triggerWord, replyMessage, matchType, isActive ? 1 : 0, ruleId);
-
-    triggerSync('auto-reply: peraturan dikemaskini');
-    return db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(ruleId);
-  }
-
-  deleteRule(ruleId) {
-    console.log(`[AutoReply] Memadam peraturan #${ruleId}`);
-    db.prepare('DELETE FROM auto_replies WHERE id = ?').run(ruleId);
-    triggerSync('auto-reply: peraturan dipadam');
-  }
-
-  getRules(userId, deviceId) {
-    if (deviceId) {
-      console.log(`[AutoReply] Mendapatkan peraturan untuk peranti ${deviceId}`);
-      return db.prepare(
-        'SELECT * FROM auto_replies WHERE user_id = ? AND device_id = ? ORDER BY id DESC'
-      ).all(userId, deviceId);
+        // Break after first match — don't send multiple replies
+        return;
+      }
     }
-
-    console.log(`[AutoReply] Mendapatkan semua peraturan untuk pengguna ${userId}`);
-    return db.prepare(
-      'SELECT * FROM auto_replies WHERE user_id = ? ORDER BY id DESC'
-    ).all(userId);
-  }
-
-  toggleRule(ruleId) {
-    console.log(`[AutoReply] Menukar status peraturan #${ruleId}`);
-
-    const rule = db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(ruleId);
-    if (!rule) {
-      throw new Error('Peraturan tidak dijumpai');
-    }
-
-    const newStatus = rule.is_active ? 0 : 1;
-    db.prepare('UPDATE auto_replies SET is_active = ? WHERE id = ?').run(newStatus, ruleId);
-
-    triggerSync('auto-reply: tukar status peraturan');
-    console.log(`[AutoReply] Peraturan #${ruleId} kini ${newStatus ? 'aktif' : 'tidak aktif'}`);
-    return db.prepare('SELECT * FROM auto_replies WHERE id = ?').get(ruleId);
+  } catch (err) {
+    console.error(`[AutoReply] Error processing auto-reply for device ${deviceId}:`, err.message);
   }
 }
 
-module.exports = new AutoReplyService();
+module.exports = { processAutoReply };

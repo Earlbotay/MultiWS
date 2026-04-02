@@ -3,162 +3,315 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Warmer</title>
+  <title>MultiChat — Warmer</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="sidebar" id="sidebar"></div>
-  <div class="main-content">
+  <div id="sidebar"></div>
+
+  <main class="main-content">
     <div class="page-header">
-      <div>
-        <h1 class="page-title">🔥 Warmer</h1>
-        <p class="page-subtitle">Panaskan nombor WhatsApp anda</p>
-      </div>
-      <button class="btn btn-primary" onclick="showModal('createWarmerModal')">+ Cipta Sesi Warmer</button>
+      <h1>🔥 Warmer</h1>
+      <button class="btn btn-primary" onclick="openWarmerModal()">
+        <span>➕</span> Warmer Baru
+      </button>
     </div>
 
-    <div id="warmerList">
-      <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
+    <!-- Warmer Jobs Table -->
+    <div class="section-card">
+      <h2>📋 Senarai Warmer Jobs</h2>
+      <div class="table-responsive">
+        <table class="table" id="warmer-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Peranti</th>
+              <th>Nombor Sasaran</th>
+              <th>Mesej</th>
+              <th>Interval</th>
+              <th>Status</th>
+              <th>Jumlah Hantar</th>
+              <th>Terakhir Hantar</th>
+              <th>Tindakan</th>
+            </tr>
+          </thead>
+          <tbody id="warmer-tbody">
+            <tr>
+              <td colspan="9" class="text-center text-secondary">Memuatkan...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
-  </div>
+  </main>
 
   <!-- Create Warmer Modal -->
-  <div class="modal-overlay" id="createWarmerModal">
-    <div class="modal" style="max-width:560px;">
+  <div class="modal-overlay" id="warmerModal" style="display:none;">
+    <div class="modal">
       <div class="modal-header">
-        <h3 class="modal-title">🔥 Cipta Sesi Warmer</h3>
-        <button class="modal-close" onclick="hideModal('createWarmerModal')">✕</button>
+        <h3>🔥 Cipta Warmer Baru</h3>
+        <button class="modal-close" onclick="closeWarmerModal()">&times;</button>
       </div>
-
-      <div class="form-group">
-        <label class="form-label">Pilih Peranti (minimum 2)</label>
-        <div id="deviceCheckboxes" class="flex flex-col gap-2"></div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Senarai Mesej (satu per baris)</label>
-        <textarea class="form-textarea" id="warmerMessages" placeholder="Hai, apa khabar?&#10;Salam! Sihat?&#10;..." rows="5"></textarea>
-      </div>
-
-      <div class="flex gap-3">
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">Interval Min (saat)</label>
-          <input type="number" class="form-input" id="warmerIntervalMin" value="30" min="10">
-        </div>
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">Interval Max (saat)</label>
-          <input type="number" class="form-input" id="warmerIntervalMax" value="60" min="10">
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn btn-outline" onclick="hideModal('createWarmerModal')">Batal</button>
-        <button class="btn btn-primary" onclick="createWarmer()">Cipta Warmer</button>
+      <div class="modal-body">
+        <form id="warmerForm" onsubmit="handleCreateWarmer(event)">
+          <div class="form-group">
+            <label for="warmerDevice">Peranti</label>
+            <select id="warmerDevice" class="form-control" required>
+              <option value="">-- Pilih Peranti --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="warmerTarget">Nombor Sasaran</label>
+            <input type="text" id="warmerTarget" class="form-control" placeholder="cth: 60123456789" required>
+          </div>
+          <div class="form-group">
+            <label for="warmerMessage">Mesej</label>
+            <textarea id="warmerMessage" class="form-control" rows="4" placeholder="Taip mesej warmer di sini..." required></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group form-group-half">
+              <label for="warmerIntervalMin">Interval Min (minit)</label>
+              <input type="number" id="warmerIntervalMin" class="form-control" value="30" min="1" required>
+            </div>
+            <div class="form-group form-group-half">
+              <label for="warmerIntervalMax">Interval Max (minit)</label>
+              <input type="number" id="warmerIntervalMax" class="form-control" value="60" min="1" required>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-outline" onclick="closeWarmerModal()">Batal</button>
+            <button type="submit" class="btn btn-primary" id="createWarmerBtn">Cipta Warmer</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
 
+  <div id="toast-container"></div>
   <script src="/js/app.js"></script>
   <script>
+    loadSidebar();
+    initSSE();
+
+    let warmerDevices = [];
+
+    // --- Load Warmers ---
     async function loadWarmers() {
       try {
-        const res = await api('/api/warmer');
-        const sessions = res.data || [];
-
-        if (sessions.length === 0) {
-          document.getElementById('warmerList').innerHTML = `
-            <div class="empty-state">
-              <div class="empty-state-icon">🔥</div>
-              <div class="empty-state-title">Tiada sesi warmer</div>
-              <p class="text-muted">Cipta sesi warmer untuk mula memanaskan nombor.</p>
-            </div>`;
-          return;
+        const res = await api('/warmer');
+        if (res.success) {
+          renderWarmers(res.data || []);
         }
-
-        document.getElementById('warmerList').innerHTML = `
-          <div class="table-container">
-            <table>
-              <thead><tr><th>ID</th><th>Status</th><th>Peranti</th><th>Mesej Dihantar</th><th>Tindakan</th></tr></thead>
-              <tbody>${sessions.map(s => `
-                <tr>
-                  <td>#${s.id}</td>
-                  <td><span class="badge badge-${s.status === 'running' ? 'success' : s.status === 'stopped' ? 'danger' : 'muted'}">${s.status}</span></td>
-                  <td>${s.device_count || '-'} peranti</td>
-                  <td>${s.messages_sent || 0}</td>
-                  <td>
-                    <div class="flex gap-2">
-                      ${s.status !== 'running' ? `<button class="btn btn-success btn-sm" onclick="startWarmer(${s.id})">▶ Mula</button>` : ''}
-                      ${s.status === 'running' ? `<button class="btn btn-warning btn-sm" onclick="stopWarmer(${s.id})">⏸ Henti</button>` : ''}
-                      <button class="btn btn-outline btn-sm" onclick="deleteWarmer(${s.id})">🗑</button>
-                    </div>
-                  </td>
-                </tr>
-              `).join('')}</tbody>
-            </table>
-          </div>`;
-      } catch (err) {
-        showToast('Gagal memuatkan warmer: ' + err.message, 'error');
+      } catch(err) {
+        showToast('Gagal muat senarai warmer', 'error');
       }
     }
 
-    async function loadDeviceCheckboxes() {
-      try {
-        const res = await api('/api/devices');
-        const devices = res.data || [];
-        document.getElementById('deviceCheckboxes').innerHTML = devices.map(d => `
-          <label style="display:flex; align-items:center; gap:8px; padding:8px; background:var(--bg-input); border-radius:var(--radius-sm); cursor:pointer;">
-            <input type="checkbox" value="${d.id}" class="warmer-device">
-            <span>${escapeHtml(d.name)} ${d.status === 'connected' ? '🟢' : '🔴'}</span>
-          </label>
-        `).join('');
-      } catch (err) {}
+    function renderWarmers(warmers) {
+      const tbody = document.getElementById('warmer-tbody');
+      if (!warmers.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-secondary">Tiada warmer job. Klik "Warmer Baru" untuk mula.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = warmers.map(w => createWarmerRow(w)).join('');
     }
 
-    async function createWarmer() {
-      const deviceIds = [...document.querySelectorAll('.warmer-device:checked')].map(c => parseInt(c.value));
-      const messages = document.getElementById('warmerMessages').value.split('\n').map(m => m.trim()).filter(Boolean);
+    function createWarmerRow(w) {
+      const msgPreview = (w.message || '').length > 40 ? escapeHtml(w.message.substring(0, 40)) + '...' : escapeHtml(w.message || '');
+      const deviceName = w.device_name || w.deviceName || 'Peranti #' + (w.device_id || w.deviceId || '?');
+      const statusBadge = getWarmerStatusBadge(w.status);
+      const lastSent = w.last_sent ? new Date(w.last_sent).toLocaleString('ms-MY') : '—';
+      const totalSent = w.total_sent != null ? w.total_sent : 0;
+      const intervalMin = w.interval_min || w.intervalMin || 30;
+      const intervalMax = w.interval_max || w.intervalMax || 60;
 
-      if (deviceIds.length < 2) return showToast('Pilih sekurang-kurangnya 2 peranti', 'warning');
-      if (messages.length === 0) return showToast('Sila masukkan sekurang-kurangnya satu mesej', 'warning');
+      let actions = '';
+      if (w.status === 'active' || w.status === 'running') {
+        actions += `<button class="btn btn-sm btn-warning" onclick="stopWarmer(${w.id})">⏸ Henti</button> `;
+      } else if (w.status === 'paused' || w.status === 'pending' || w.status === 'stopped') {
+        actions += `<button class="btn btn-sm btn-primary" onclick="startWarmer(${w.id})">▶ Mula</button> `;
+      }
+      actions += `<button class="btn btn-sm btn-danger" onclick="deleteWarmer(${w.id})">🗑 Padam</button>`;
+
+      return `
+        <tr data-warmer-id="${w.id}">
+          <td>#${w.id}</td>
+          <td>${escapeHtml(deviceName)}</td>
+          <td>${escapeHtml(w.target_phone || w.targetPhone || '')}</td>
+          <td title="${escapeHtml(w.message || '')}">${msgPreview}</td>
+          <td>${intervalMin}–${intervalMax} min</td>
+          <td>${statusBadge}</td>
+          <td class="warmer-total-sent">${totalSent}</td>
+          <td class="warmer-last-sent">${lastSent}</td>
+          <td class="table-actions">${actions}</td>
+        </tr>
+      `;
+    }
+
+    function getWarmerStatusBadge(status) {
+      const map = {
+        pending: '<span class="status-badge warning">Pending</span>',
+        active: '<span class="status-badge connected">Active</span>',
+        running: '<span class="status-badge info">Running</span>',
+        paused: '<span class="status-badge warning">Paused</span>',
+        stopped: '<span class="status-badge disconnected">Stopped</span>'
+      };
+      return map[status] || `<span class="status-badge">${escapeHtml(status || 'unknown')}</span>`;
+    }
+
+    // --- Load Devices for selector ---
+    async function loadDevicesForWarmer() {
+      try {
+        const res = await api('/devices');
+        if (res.success) {
+          warmerDevices = (res.data || []).filter(d => d.status === 'connected');
+          const select = document.getElementById('warmerDevice');
+          select.innerHTML = '<option value="">-- Pilih Peranti --</option>' +
+            warmerDevices.map(d => `<option value="${d.id}">${escapeHtml(d.name)}${d.phone ? ' (' + escapeHtml(d.phone) + ')' : ''}</option>`).join('');
+        }
+      } catch(err) {
+        // Silently fail
+      }
+    }
+
+    // --- Open / Close Modal ---
+    function openWarmerModal() {
+      loadDevicesForWarmer();
+      document.getElementById('warmerTarget').value = '';
+      document.getElementById('warmerMessage').value = '';
+      document.getElementById('warmerIntervalMin').value = '30';
+      document.getElementById('warmerIntervalMax').value = '60';
+      document.getElementById('warmerModal').style.display = 'flex';
+    }
+
+    function closeWarmerModal() {
+      document.getElementById('warmerModal').style.display = 'none';
+    }
+
+    // --- Create Warmer ---
+    async function handleCreateWarmer(e) {
+      e.preventDefault();
+      const deviceId = document.getElementById('warmerDevice').value;
+      const targetPhone = document.getElementById('warmerTarget').value.trim();
+      const message = document.getElementById('warmerMessage').value.trim();
+      const intervalMin = parseInt(document.getElementById('warmerIntervalMin').value) || 30;
+      const intervalMax = parseInt(document.getElementById('warmerIntervalMax').value) || 60;
+
+      if (!deviceId) { showToast('Sila pilih peranti', 'error'); return; }
+      if (!targetPhone) { showToast('Sila masukkan nombor sasaran', 'error'); return; }
+      if (!message) { showToast('Sila masukkan mesej', 'error'); return; }
+      if (intervalMin > intervalMax) { showToast('Interval min tidak boleh melebihi interval max', 'error'); return; }
+
+      const btn = document.getElementById('createWarmerBtn');
+      btn.disabled = true;
+      btn.textContent = 'Mencipta...';
 
       try {
-        await api('/api/warmer', {
+        const res = await api('/warmer', {
           method: 'POST',
-          body: JSON.stringify({
-            deviceIds,
-            messages,
-            intervalMin: parseInt(document.getElementById('warmerIntervalMin').value) || 30,
-            intervalMax: parseInt(document.getElementById('warmerIntervalMax').value) || 60,
-          })
+          body: JSON.stringify({ deviceId, targetPhone, message, intervalMin, intervalMax })
         });
-        hideModal('createWarmerModal');
-        showToast('Sesi warmer dicipta!', 'success');
-        loadWarmers();
-      } catch (err) {
-        showToast(err.message, 'error');
+        if (res.success) {
+          showToast('Warmer berjaya dicipta!', 'success');
+          closeWarmerModal();
+          const tbody = document.getElementById('warmer-tbody');
+          const emptyRow = tbody.querySelector('td[colspan]');
+          if (emptyRow) emptyRow.parentElement.remove();
+          tbody.insertAdjacentHTML('afterbegin', createWarmerRow(res.data));
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal mencipta warmer', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Cipta Warmer';
       }
     }
 
+    // --- Start Warmer ---
     async function startWarmer(id) {
-      try { await api(`/api/warmer/${id}/start`, { method: 'POST' }); showToast('Warmer dimulakan', 'success'); loadWarmers(); }
-      catch (err) { showToast(err.message, 'error'); }
+      try {
+        const res = await api(`/warmer/${id}/start`, { method: 'POST' });
+        if (res.success) {
+          showToast('Warmer dimulakan!', 'success');
+          const row = document.querySelector(`[data-warmer-id="${id}"]`);
+          if (row) {
+            row.children[5].innerHTML = getWarmerStatusBadge('active');
+            const actionsCell = row.querySelector('.table-actions');
+            if (actionsCell) {
+              actionsCell.innerHTML = `
+                <button class="btn btn-sm btn-warning" onclick="stopWarmer(${id})">⏸ Henti</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteWarmer(${id})">🗑 Padam</button>
+              `;
+            }
+          }
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal memulakan warmer', 'error');
+      }
     }
 
+    // --- Stop Warmer ---
     async function stopWarmer(id) {
-      try { await api(`/api/warmer/${id}/stop`, { method: 'POST' }); showToast('Warmer dihentikan', 'info'); loadWarmers(); }
-      catch (err) { showToast(err.message, 'error'); }
+      try {
+        const res = await api(`/warmer/${id}/stop`, { method: 'POST' });
+        if (res.success) {
+          showToast('Warmer dihentikan', 'success');
+          const row = document.querySelector(`[data-warmer-id="${id}"]`);
+          if (row) {
+            row.children[5].innerHTML = getWarmerStatusBadge('stopped');
+            const actionsCell = row.querySelector('.table-actions');
+            if (actionsCell) {
+              actionsCell.innerHTML = `
+                <button class="btn btn-sm btn-primary" onclick="startWarmer(${id})">▶ Mula</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteWarmer(${id})">🗑 Padam</button>
+              `;
+            }
+          }
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal menghentikan warmer', 'error');
+      }
     }
 
+    // --- Delete Warmer ---
     async function deleteWarmer(id) {
-      if (!await confirmAction('Padam sesi warmer ini?')) return;
-      try { await api(`/api/warmer/${id}`, { method: 'DELETE' }); showToast('Warmer dipadam', 'success'); loadWarmers(); }
-      catch (err) { showToast(err.message, 'error'); }
+      if (!confirm('Adakah anda pasti mahu memadam warmer ini?')) return;
+      try {
+        const res = await api(`/warmer/${id}`, { method: 'DELETE' });
+        if (res.success) {
+          showToast('Warmer berjaya dipadam', 'success');
+          const row = document.querySelector(`[data-warmer-id="${id}"]`);
+          if (row) row.remove();
+          // Check if table is empty
+          const tbody = document.getElementById('warmer-tbody');
+          if (!tbody.children.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-secondary">Tiada warmer job. Klik "Warmer Baru" untuk mula.</td></tr>';
+          }
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal memadam warmer', 'error');
+      }
     }
 
-    (async () => {
-      if (!await initPage('warmer')) return;
-      await Promise.all([loadWarmers(), loadDeviceCheckboxes()]);
-    })();
+    // --- SSE: Warmer Update Handler (targeted update) ---
+    document.addEventListener('sse:warmer-update', (e) => {
+      const data = e.detail;
+      const row = document.querySelector(`[data-warmer-id="${data.warmerId}"]`);
+      if (!row) return;
+
+      const totalSentEl = row.querySelector('.warmer-total-sent');
+      if (totalSentEl && data.totalSent != null) {
+        totalSentEl.textContent = data.totalSent;
+      }
+
+      const lastSentEl = row.querySelector('.warmer-last-sent');
+      if (lastSentEl && data.lastSent) {
+        lastSentEl.textContent = new Date(data.lastSent).toLocaleString('ms-MY');
+      }
+    });
+
+    // Initial load
+    loadWarmers();
   </script>
 </body>
 </html>

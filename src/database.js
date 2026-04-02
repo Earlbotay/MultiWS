@@ -1,17 +1,19 @@
+'use strict';
+
+const path = require('path');
 const Database = require('better-sqlite3');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const config = require('./config');
 
-// Buka sambungan pangkalan data SQLite
-const db = new Database(config.DB_PATH);
-console.log('[Pangkalan Data] Disambungkan ke:', config.DB_PATH);
+// ── Initialize SQLite database ──
+const dbPath = path.join(config.DATA_DIR, 'db', 'multichat.db');
+const db = new Database(dbPath);
 
-// Aktifkan mod WAL untuk prestasi lebih baik
+// ── Enable WAL mode and foreign keys ──
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-// ─── Cipta jadual jika belum wujud ─────────────────────────────────────────
-
+// ── Create all tables ──
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,29 +49,37 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id INTEGER NOT NULL,
     remote_jid TEXT NOT NULL,
-    sender TEXT,
+    from_me INTEGER DEFAULT 0,
     message TEXT,
-    type TEXT DEFAULT 'text',
-    media_path TEXT,
-    is_outgoing INTEGER DEFAULT 0,
     timestamp INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'sent',
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS auto_replies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    device_id INTEGER,
+    trigger_word TEXT NOT NULL,
+    response TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    match_type TEXT DEFAULT 'contains',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL
   );
 
   CREATE TABLE IF NOT EXISTS blast_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     device_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    message TEXT NOT NULL,
-    media_path TEXT,
-    delay_min INTEGER DEFAULT 5,
-    delay_max INTEGER DEFAULT 15,
     status TEXT DEFAULT 'pending',
     total INTEGER DEFAULT 0,
     sent INTEGER DEFAULT 0,
     failed INTEGER DEFAULT 0,
+    message TEXT,
+    delay_min INTEGER DEFAULT 1,
+    delay_max INTEGER DEFAULT 5,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -85,104 +95,49 @@ db.exec(`
     FOREIGN KEY (blast_id) REFERENCES blast_jobs(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS warmer_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    status TEXT DEFAULT 'stopped',
-    messages TEXT,
-    interval_min INTEGER DEFAULT 60,
-    interval_max INTEGER DEFAULT 300,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS warmer_devices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    warmer_id INTEGER NOT NULL,
-    device_id INTEGER NOT NULL,
-    FOREIGN KEY (warmer_id) REFERENCES warmer_sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS auto_replies (
+  CREATE TABLE IF NOT EXISTS warmer_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     device_id INTEGER NOT NULL,
-    trigger_word TEXT NOT NULL,
-    reply_message TEXT NOT NULL,
-    match_type TEXT DEFAULT 'contains',
-    is_active INTEGER DEFAULT 1,
+    target_phone TEXT NOT NULL,
+    message TEXT NOT NULL,
+    interval_min INTEGER DEFAULT 30,
+    interval_max INTEGER DEFAULT 60,
+    status TEXT DEFAULT 'active',
+    last_sent DATETIME,
+    total_sent INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
   );
 `);
 
-console.log('[Pangkalan Data] Semua jadual berjaya dicipta / disahkan.');
+// ── Seed admin user from env vars ──
+async function seedAdmin() {
+  const { ADMIN_USER, ADMIN_PASS } = config;
 
-// ─── Fungsi pembantu ────────────────────────────────────────────────────────
+  if (!ADMIN_USER || !ADMIN_PASS) {
+    console.warn('[DATABASE] AMARAN: ADMIN_USER atau ADMIN_PASS tidak ditetapkan. Admin seed dilangkau.');
+    return;
+  }
 
-/**
- * Cari pengguna berdasarkan nama pengguna
- * @param {string} username
- * @returns {object|undefined}
- */
-function getUser(username) {
-  const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
-  return stmt.get(username);
-}
-
-/**
- * Cipta pengguna baharu
- * @param {string} username
- * @param {string} hashedPassword - kata laluan yang telah di-hash
- * @returns {object} hasil operasi insert
- */
-function createUser(username, hashedPassword) {
-  const stmt = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)');
-  return stmt.run(username, hashedPassword);
-}
-
-/**
- * Cipta akaun admin lalai jika belum wujud
- */
-function seedAdmin() {
-  // Tambah lajur role jika belum wujud (untuk DB lama)
   try {
-    db.prepare("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'").run();
-  } catch (e) {
-    // Lajur sudah wujud, abaikan
-  }
+    const hashedPassword = await bcrypt.hash(ADMIN_PASS, 10);
 
-  const existing = getUser(config.ADMIN_USER);
-  if (!existing) {
-    const salt = bcrypt.genSaltSync(10);
-    const hashedPassword = bcrypt.hashSync(config.ADMIN_PASS, salt);
-    db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)').run(config.ADMIN_USER, hashedPassword, 'admin');
-    console.log(`[Pangkalan Data] Akaun admin '${config.ADMIN_USER}' berjaya dicipta dengan role admin.`);
-  } else {
-    // Pastikan role admin sentiasa ditetapkan
-    if (existing.role !== 'admin') {
-      db.prepare('UPDATE users SET role = ? WHERE username = ?').run('admin', config.ADMIN_USER);
-      console.log(`[Pangkalan Data] Role admin dikemaskini untuk '${config.ADMIN_USER}'.`);
+    const existing = db.prepare('SELECT id, password, role FROM users WHERE username = ?').get(ADMIN_USER);
+
+    if (existing) {
+      // Update admin password and ensure role is 'admin'
+      db.prepare('UPDATE users SET password = ?, role = ? WHERE id = ?').run(hashedPassword, 'admin', existing.id);
+      console.log(`[DATABASE] Admin user "${ADMIN_USER}" dikemas kini.`);
+    } else {
+      // Create new admin user
+      db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)').run(ADMIN_USER, hashedPassword, 'admin');
+      console.log(`[DATABASE] Admin user "${ADMIN_USER}" dicipta.`);
     }
-    // Kemaskini kata laluan jika env berubah (untuk GitHub Secrets)
-    if (!bcrypt.compareSync(config.ADMIN_PASS, existing.password)) {
-      const salt = bcrypt.genSaltSync(10);
-      const hashedPassword = bcrypt.hashSync(config.ADMIN_PASS, salt);
-      db.prepare('UPDATE users SET password = ? WHERE username = ?').run(hashedPassword, config.ADMIN_USER);
-      console.log(`[Pangkalan Data] Kata laluan admin dikemaskini dari pembolehubah persekitaran.`);
-    }
-    console.log(`[Pangkalan Data] Akaun admin '${config.ADMIN_USER}' sudah wujud.`);
+  } catch (err) {
+    console.error('[DATABASE] Ralat semasa seed admin:', err.message);
   }
 }
 
-// Cipta admin semasa modul dimuatkan
-seedAdmin();
-
-module.exports = {
-  db,
-  getUser,
-  createUser,
-  seedAdmin,
-};
+module.exports = { db, seedAdmin };

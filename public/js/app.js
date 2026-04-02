@@ -1,245 +1,516 @@
-/* ===== Multichat Shared JavaScript ===== */
+/* ================================================================
+   MultiChat — Shared JavaScript (app.js)
+   Loaded by ALL pages. Provides: api(), showToast(), escapeHtml(),
+   initSSE(), loadSidebar(), debounce(), formatPhone(), formatDate()
+   ================================================================ */
 
-// ===== UTILITIES =====
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-function formatTime(ts) {
-  if (!ts) return '';
-  const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
-  if (isNaN(d.getTime())) return '';
-  const now = new Date();
-  const diff = now - d;
-  if (diff < 60000) return 'baru je';
-  if (diff < 3600000) return Math.floor(diff / 60000) + ' min lalu';
-  if (diff < 86400000) return d.toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleDateString('ms-MY', { day: '2-digit', month: 'short' });
-}
-
-function formatDate(ts) {
-  if (!ts) return '-';
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return '-';
-  return d.toLocaleDateString('ms-MY', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-function formatPhone(phone) {
-  if (!phone) return 'Tiada nombor';
-  return '+' + phone;
-}
-
-// ===== TOAST NOTIFICATIONS =====
-let toastContainer = null;
-
-function showToast(message, type = 'info') {
-  if (!toastContainer) {
-    toastContainer = document.createElement('div');
-    toastContainer.className = 'toast-container';
-    document.body.appendChild(toastContainer);
+/* ── API Helper ────────────────────────────────────────────────── */
+async function api(url, options = {}) {
+  // Prepend /api if not already present
+  if (!url.startsWith('/api')) {
+    url = '/api' + (url.startsWith('/') ? '' : '/') + url;
   }
-  const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+
+  const fetchOpts = {
+    credentials: 'same-origin',
+    ...options,
+    headers: {
+      ...(options.headers || {})
+    }
+  };
+
+  // Set JSON content type for POST/PUT/PATCH with body
+  const method = (fetchOpts.method || 'GET').toUpperCase();
+  if (['POST', 'PUT', 'PATCH'].includes(method) && fetchOpts.body && typeof fetchOpts.body === 'string') {
+    fetchOpts.headers['Content-Type'] = fetchOpts.headers['Content-Type'] || 'application/json';
+  }
+  // Auto-stringify plain objects
+  if (fetchOpts.body && typeof fetchOpts.body === 'object' && !(fetchOpts.body instanceof FormData)) {
+    fetchOpts.headers['Content-Type'] = 'application/json';
+    fetchOpts.body = JSON.stringify(fetchOpts.body);
+  }
+
+  const res = await fetch(url, fetchOpts);
+  let data;
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    data = await res.json();
+  } else {
+    data = await res.text();
+  }
+
+  if (!res.ok) {
+    const msg = (typeof data === 'object' && data !== null)
+      ? (data.error || data.message || `Error ${res.status}`)
+      : `Error ${res.status}`;
+    // Redirect to login on 401, but guard against infinite loop on login page
+    if (res.status === 401 || (typeof msg === 'string' && msg.toLowerCase().includes('log masuk'))) {
+      const p = window.location.pathname;
+      if (p !== '/' && p !== '/index.html') {
+        window.location.href = '/';
+        return; // stop further execution
+      }
+    }
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
+/* ── Toast Notifications ───────────────────────────────────────── */
+function showToast(message, type = 'success') {
+  // Ensure toast container exists
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+
+  const icons = {
+    success: '✓',
+    error: '✕',
+    warning: '⚠',
+    info: 'ℹ'
+  };
+
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${escapeHtml(message)}</span>`;
-  toastContainer.appendChild(toast);
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(100px)';
-    toast.style.transition = 'all 0.3s ease';
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
-}
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type] || icons.success}</span>
+    <span class="toast-body">${escapeHtml(message)}</span>
+  `;
 
-// ===== DEBOUNCE =====
-function debounce(fn, ms = 1000) {
-  let timer;
-  return (...args) => {
+  container.appendChild(toast);
+
+  // Auto-dismiss after 3 seconds
+  const timer = setTimeout(() => removeToast(toast), 3000);
+
+  // Allow click to dismiss early
+  toast.addEventListener('click', () => {
     clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
+    removeToast(toast);
+  });
 }
 
-// ===== API HELPER =====
-async function api(url, options = {}) {
-  try {
-    const res = await fetch(url, {
-      headers: { 'Content-Type': 'application/json', ...options.headers },
-      credentials: 'same-origin',
-      ...options,
-    });
-    const data = await res.json();
-    if (!res.ok || data.success === false) {
-      throw new Error(data.error || `Ralat ${res.status}`);
-    }
-    return data;
-  } catch (err) {
-    if (err.message.includes('log masuk') || err.message.includes('401')) {
-      window.location.href = '/';
-    }
-    throw err;
+function removeToast(toast) {
+  if (!toast || !toast.parentNode) return;
+  toast.classList.add('removing');
+  toast.addEventListener('animationend', () => {
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  });
+}
+
+/* ── Escape HTML (XSS Prevention) ──────────────────────────────── */
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/* ── SSE (Server-Sent Events) ──────────────────────────────────── */
+let _sseSource = null;
+
+function initSSE() {
+  // Close existing connection
+  if (_sseSource) {
+    _sseSource.close();
+    _sseSource = null;
   }
-}
 
-// ===== SSE (Server-Sent Events) =====
-let eventSource = null;
-const sseHandlers = {};
+  const es = new EventSource('/api/events');
+  _sseSource = es;
 
-function connectSSE() {
-  if (eventSource) eventSource.close();
-  eventSource = new EventSource('/api/events');
-
-  eventSource.addEventListener('connected', () => {
-    console.log('[SSE] Bersambung');
+  // ── device-status: update specific device card ──
+  es.addEventListener('device-status', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const card = document.querySelector(`[data-device-id="${data.deviceId}"]`);
+      if (card) {
+        const badge = card.querySelector('.status-badge');
+        if (badge) {
+          badge.textContent = data.status;
+          badge.className = `status-badge ${data.status}`;
+        }
+        // Update phone number if available
+        if (data.phone) {
+          const phoneEl = card.querySelector('.device-phone');
+          if (phoneEl) phoneEl.textContent = formatPhone(data.phone);
+        }
+      }
+      // Also update any stat elements showing connected device count
+      const connectedEl = document.getElementById('stat-connected');
+      if (connectedEl) {
+        const allBadges = document.querySelectorAll('.status-badge.connected');
+        connectedEl.textContent = allBadges.length;
+      }
+    } catch (err) {
+      console.error('SSE device-status error:', err);
+    }
   });
 
-  eventSource.onerror = () => {
-    console.warn('[SSE] Terputus, mencuba semula...');
-    setTimeout(connectSSE, 5000);
-  };
-
-  // Register existing handlers
-  for (const [event, handlers] of Object.entries(sseHandlers)) {
-    for (const handler of handlers) {
-      eventSource.addEventListener(event, handler);
+  // ── new-message: update chat or notification ──
+  es.addEventListener('new-message', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      // Update message count stat if present
+      const msgCountEl = document.getElementById('stat-messages');
+      if (msgCountEl) {
+        const current = parseInt(msgCountEl.textContent) || 0;
+        msgCountEl.textContent = current + 1;
+      }
+      // Append message to active chat if matching
+      const chatContainer = document.getElementById('chat-messages');
+      if (chatContainer && chatContainer.dataset.jid === data.message.remote_jid &&
+          chatContainer.dataset.deviceId === String(data.deviceId)) {
+        const msgDiv = document.createElement('div');
+        const fromMe = data.message.from_me ? 'from-me' : 'received';
+        msgDiv.className = `message ${fromMe}`;
+        msgDiv.innerHTML = `
+          <div class="message-bubble">${escapeHtml(data.message.message || '')}</div>
+          <span class="message-time">${formatDate(data.message.timestamp)}</span>
+        `;
+        chatContainer.appendChild(msgDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+      // Update conversation list preview
+      const convItem = document.querySelector(`.chat-item[data-jid="${data.message.remote_jid}"][data-device-id="${data.deviceId}"]`);
+      if (convItem) {
+        const preview = convItem.querySelector('.chat-preview');
+        if (preview) preview.textContent = data.message.message || '';
+        const time = convItem.querySelector('.chat-time');
+        if (time) time.textContent = formatDate(data.message.timestamp);
+      }
+    } catch (err) {
+      console.error('SSE new-message error:', err);
     }
-  }
-}
+  });
 
-function onSSE(event, callback) {
-  if (!sseHandlers[event]) sseHandlers[event] = [];
-  const handler = (e) => {
-    try { callback(JSON.parse(e.data)); } catch (err) { console.error('[SSE] Ralat:', err); }
+  // ── blast-progress: update specific blast row ──
+  es.addEventListener('blast-progress', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const row = document.querySelector(`[data-blast-id="${data.blastId}"]`);
+      if (row) {
+        const sentEl = row.querySelector('.blast-sent');
+        if (sentEl) sentEl.textContent = data.sent;
+        const failedEl = row.querySelector('.blast-failed');
+        if (failedEl) failedEl.textContent = data.failed;
+        const totalEl = row.querySelector('.blast-total');
+        if (totalEl) totalEl.textContent = data.total;
+        // Update progress bar
+        const progressBar = row.querySelector('.progress-bar');
+        if (progressBar && data.total > 0) {
+          const pct = Math.round(((data.sent + data.failed) / data.total) * 100);
+          progressBar.style.width = pct + '%';
+        }
+        // Update status badge
+        const badge = row.querySelector('.status-badge');
+        if (badge && data.status) {
+          badge.textContent = data.status;
+          badge.className = `status-badge ${data.status}`;
+        }
+        // Update progress text
+        const progressText = row.querySelector('.progress-text');
+        if (progressText) {
+          progressText.textContent = `${data.sent + data.failed} / ${data.total} (${data.sent} berjaya, ${data.failed} gagal)`;
+        }
+      }
+    } catch (err) {
+      console.error('SSE blast-progress error:', err);
+    }
+  });
+
+  // ── warmer-update: update specific warmer row ──
+  es.addEventListener('warmer-update', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const row = document.querySelector(`[data-warmer-id="${data.warmerId}"]`);
+      if (row) {
+        const sentEl = row.querySelector('.warmer-total-sent');
+        if (sentEl) sentEl.textContent = data.totalSent;
+        const lastEl = row.querySelector('.warmer-last-sent');
+        if (lastEl) lastEl.textContent = data.lastSent ? formatDate(data.lastSent) : '-';
+      }
+    } catch (err) {
+      console.error('SSE warmer-update error:', err);
+    }
+  });
+
+  // ── qr-code: display QR in device card ──
+  es.addEventListener('qr-code', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const card = document.querySelector(`[data-device-id="${data.deviceId}"]`);
+      if (card) {
+        // Remove any existing pairing/qr display
+        const existing = card.querySelector('.qr-display, .pairing-display');
+        if (existing) existing.remove();
+        // Create QR display
+        const qrDiv = document.createElement('div');
+        qrDiv.className = 'qr-display';
+        qrDiv.innerHTML = `
+          <img src="${data.qr}" alt="QR Code">
+          <p>Imbas kod QR ini dengan WhatsApp anda</p>
+        `;
+        const actionsEl = card.querySelector('.device-actions');
+        if (actionsEl) {
+          actionsEl.parentNode.insertBefore(qrDiv, actionsEl);
+        } else {
+          card.querySelector('.card-body')?.appendChild(qrDiv) || card.appendChild(qrDiv);
+        }
+      }
+    } catch (err) {
+      console.error('SSE qr-code error:', err);
+    }
+  });
+
+  // ── pairing-code: display pairing code in device card ──
+  es.addEventListener('pairing-code', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const card = document.querySelector(`[data-device-id="${data.deviceId}"]`);
+      if (card) {
+        // Remove any existing pairing/qr display
+        const existing = card.querySelector('.qr-display, .pairing-display');
+        if (existing) existing.remove();
+        // Create pairing display
+        const pairDiv = document.createElement('div');
+        pairDiv.className = 'pairing-display';
+        pairDiv.innerHTML = `
+          <div class="pairing-code">${escapeHtml(data.code)}</div>
+          <p>Masukkan kod ini dalam WhatsApp anda</p>
+          <button class="btn btn-outline btn-sm" onclick="copyPairingCode('${escapeHtml(data.code)}')">📋 Salin Kod</button>
+        `;
+        const actionsEl = card.querySelector('.device-actions');
+        if (actionsEl) {
+          actionsEl.parentNode.insertBefore(pairDiv, actionsEl);
+        } else {
+          card.querySelector('.card-body')?.appendChild(pairDiv) || card.appendChild(pairDiv);
+        }
+      }
+    } catch (err) {
+      console.error('SSE pairing-code error:', err);
+    }
+  });
+
+  // ── Error handler: reconnect after 5 seconds ──
+  es.onerror = () => {
+    es.close();
+    _sseSource = null;
+    setTimeout(initSSE, 5000);
   };
-  sseHandlers[event].push(handler);
-  if (eventSource) {
-    eventSource.addEventListener(event, handler);
+}
+
+/* ── Copy Pairing Code ─────────────────────────────────────────── */
+function copyPairingCode(code) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(() => {
+      showToast('Kod pairing berjaya disalin!');
+    }).catch(() => {
+      fallbackCopy(code);
+    });
+  } else {
+    fallbackCopy(code);
   }
 }
 
-// ===== AUTH STATE =====
-let currentUser = null;
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  showToast('Kod pairing berjaya disalin!');
+}
 
-async function checkAuth() {
+/* ── Sidebar Loader ────────────────────────────────────────────── */
+async function loadSidebar() {
+  const el = document.getElementById('sidebar');
+  if (!el) return;
+  if (el.dataset.loaded) return;
+  el.dataset.loaded = '1';
+
+  let user = { username: '...', role: 'user' };
   try {
-    const res = await api('/api/auth/me');
-    currentUser = res.data;
-    return currentUser;
+    const res = await api('/auth/me');
+    user = res.data || res;
   } catch (err) {
-    return null;
+    // Not logged in — don't redirect (api() handles that)
+    console.warn('Failed to load user info:', err.message);
   }
-}
 
-async function logout() {
-  try {
-    await api('/api/auth/logout', { method: 'POST' });
-  } catch (err) {}
-  window.location.href = '/';
-}
+  const currentPath = window.location.pathname;
 
-// ===== SIDEBAR =====
-function loadSidebar(activePage) {
-  const sidebarEl = document.getElementById('sidebar');
-  if (!sidebarEl || sidebarEl.dataset.loaded === 'true') return;
-  sidebarEl.dataset.loaded = 'true';
-
-  const isAdmin = currentUser && currentUser.role === 'admin';
-
-  const navItems = [
-    { id: 'dashboard', icon: '📊', label: 'Dashboard', href: '/dashboard.html' },
-    { id: 'devices', icon: '📱', label: 'Peranti', href: '/device.html' },
-    { id: 'chat', icon: '💬', label: 'Sembang', href: '/chat.html' },
-    { id: 'blast', icon: '📢', label: 'Broadcast', href: '/blast.html' },
-    { id: 'warmer', icon: '🔥', label: 'Warmer', href: '/warmer.html' },
-    { id: 'checker', icon: '✅', label: 'Checker', href: '/checker.html' },
-    { id: 'autoreply', icon: '🤖', label: 'Auto Balas', href: '/autoreply.html' },
-    { id: 'status', icon: '📡', label: 'Status', href: '/status.html' },
+  const navLinks = [
+    { href: '/dashboard.html', icon: '📊', label: 'Dashboard' },
+    { href: '/device.html',    icon: '📱', label: 'Peranti' },
+    { href: '/chat.html',      icon: '💬', label: 'Chat' },
+    { href: '/blast.html',     icon: '🚀', label: 'Blast' },
+    { href: '/warmer.html',    icon: '🔥', label: 'Warmer' },
+    { href: '/checker.html',   icon: '✅', label: 'Checker' },
+    { href: '/autoreply.html', icon: '🤖', label: 'Auto-Reply' },
+    { href: '/status.html',    icon: '📈', label: 'Status' }
   ];
 
-  if (isAdmin) {
-    navItems.push({ divider: true });
-    navItems.push({ id: 'admin', icon: '🛡️', label: 'Panel Admin', href: '/admin.html' });
+  if (user.role === 'admin') {
+    navLinks.push({ href: '/admin.html', icon: '⚙️', label: 'Admin' });
   }
 
-  let navHtml = '';
-  for (const item of navItems) {
-    if (item.divider) {
-      navHtml += '<div class="nav-divider"></div>';
-      continue;
-    }
-    const active = activePage === item.id ? ' active' : '';
-    navHtml += `<a class="nav-item${active}" href="${item.href}">
-      <span class="icon">${item.icon}</span>
-      <span>${item.label}</span>
+  const navHtml = navLinks.map(link => {
+    const isActive = currentPath === link.href ||
+      (link.href === '/dashboard.html' && (currentPath === '/dashboard.html' || currentPath === '/dashboard'));
+    return `<a href="${link.href}" class="${isActive ? 'active' : ''}">
+      <span class="nav-icon">${link.icon}</span>
+      <span>${link.label}</span>
     </a>`;
-  }
+  }).join('');
 
-  const initial = currentUser ? currentUser.username.charAt(0).toUpperCase() : '?';
+  const initial = (user.username || '?')[0].toUpperCase();
 
-  sidebarEl.innerHTML = `
-    <div class="sidebar-header">
-      <div class="sidebar-logo">💬</div>
-      <span class="sidebar-title">Multichat</span>
+  el.innerHTML = `
+    <div class="sidebar-brand">
+      <span class="brand-icon">💬</span>
+      <span class="brand-text">MultiChat</span>
     </div>
-    <nav class="sidebar-nav">${navHtml}</nav>
+    <nav class="sidebar-nav">
+      ${navHtml}
+    </nav>
     <div class="sidebar-footer">
       <div class="user-info">
-        <div class="user-avatar">${initial}</div>
-        <div>
-          <div class="user-name">${escapeHtml(currentUser ? currentUser.username : 'Pengguna')}</div>
-          <div class="user-role">${escapeHtml(currentUser ? currentUser.role : '')}</div>
-        </div>
+        <span class="user-avatar">${escapeHtml(initial)}</span>
+        <span>${escapeHtml(user.username)}${user.role === 'admin' ? ' <span class="tag green" style="margin-left:4px">admin</span>' : ''}</span>
       </div>
-      <button class="btn btn-outline btn-sm w-full mt-2" onclick="logout()">🚪 Log Keluar</button>
+      <button class="btn-logout" id="btn-logout">
+        🚪 Log Keluar
+      </button>
     </div>
   `;
-}
 
-// ===== MODAL HELPER =====
-function showModal(id) {
-  const el = document.getElementById(id);
-  if (el) el.classList.add('active');
-}
-
-function hideModal(id) {
-  const el = document.getElementById(id);
-  if (el) el.classList.remove('active');
-}
-
-// ===== CONFIRMATION DIALOG =====
-function confirmAction(message) {
-  return new Promise((resolve) => {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay active';
-    overlay.innerHTML = `
-      <div class="modal">
-        <div class="modal-header">
-          <h3 class="modal-title">⚠️ Pengesahan</h3>
-        </div>
-        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">${escapeHtml(message)}</p>
-        <div class="modal-footer">
-          <button class="btn btn-outline" id="confirmNo">Batal</button>
-          <button class="btn btn-danger" id="confirmYes">Ya, Teruskan</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-    overlay.querySelector('#confirmNo').onclick = () => { overlay.remove(); resolve(false); };
-    overlay.querySelector('#confirmYes').onclick = () => { overlay.remove(); resolve(true); };
-  });
-}
-
-// ===== PAGE INIT =====
-async function initPage(pageName) {
-  const user = await checkAuth();
-  if (!user) {
-    window.location.href = '/';
-    return null;
+  // Logout handler
+  const logoutBtn = document.getElementById('btn-logout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      try {
+        await api('/auth/logout', { method: 'POST' });
+      } catch (err) {
+        // Ignore errors
+      }
+      window.location.href = '/';
+    });
   }
-  loadSidebar(pageName);
-  connectSSE();
-  return user;
+
+  // Mobile sidebar toggle handler
+  const overlay = document.querySelector('.sidebar-overlay');
+  if (overlay) {
+    overlay.addEventListener('click', () => {
+      el.classList.remove('open');
+      overlay.classList.remove('active');
+    });
+  }
 }
+
+/* ── Toggle mobile sidebar ─────────────────────────────────────── */
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.querySelector('.sidebar-overlay');
+  if (sidebar) {
+    sidebar.classList.toggle('open');
+    if (overlay) overlay.classList.toggle('active');
+  }
+}
+
+/* ── Debounce Utility ──────────────────────────────────────────── */
+function debounce(fn, ms) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+
+/* ── Format Phone for Display ──────────────────────────────────── */
+function formatPhone(phone) {
+  if (!phone) return '-';
+  // Remove non-digits
+  const digits = String(phone).replace(/\D/g, '');
+  // Format: +60 12-345 6789 (Malaysian) or generic
+  if (digits.startsWith('60') && digits.length >= 10) {
+    const cc = digits.slice(0, 2);
+    const rest = digits.slice(2);
+    if (rest.length >= 9) {
+      return `+${cc} ${rest.slice(0, 2)}-${rest.slice(2, 5)} ${rest.slice(5)}`;
+    }
+    return `+${cc} ${rest}`;
+  }
+  // Generic international format
+  if (digits.length > 5) {
+    return `+${digits.slice(0, 2)} ${digits.slice(2)}`;
+  }
+  return phone;
+}
+
+/* ── Format Date/Time ──────────────────────────────────────────── */
+function formatDate(timestamp) {
+  if (!timestamp) return '-';
+  try {
+    const date = typeof timestamp === 'number'
+      ? new Date(timestamp < 1e12 ? timestamp * 1000 : timestamp)  // Handle seconds vs milliseconds
+      : new Date(timestamp);
+
+    if (isNaN(date.getTime())) return '-';
+
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('ms-MY', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+    const timeFormatter = new Intl.DateTimeFormat('ms-MY', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
+    // Check if same day
+    const dateStr = formatter.format(date);
+    const todayStr = formatter.format(now);
+    const timeStr = timeFormatter.format(date);
+
+    if (dateStr === todayStr) {
+      return timeStr;
+    }
+
+    // Check if yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = formatter.format(yesterday);
+    if (dateStr === yesterdayStr) {
+      return `Semalam ${timeStr}`;
+    }
+
+    return `${dateStr}, ${timeStr}`;
+  } catch (err) {
+    return '-';
+  }
+}
+
+/* ── DOMContentLoaded: Init sidebar + SSE on all pages except login ── */
+document.addEventListener('DOMContentLoaded', () => {
+  const path = window.location.pathname;
+  // Skip sidebar and SSE on login page
+  if (path === '/' || path === '/index.html') {
+    return;
+  }
+  loadSidebar();
+  initSSE();
+});

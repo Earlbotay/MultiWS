@@ -3,149 +3,106 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Dashboard</title>
+  <title>MultiChat — Dashboard</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="sidebar" id="sidebar"></div>
-  <div class="main-content">
+  <div id="sidebar"></div>
+
+  <main class="main-content">
     <div class="page-header">
-      <div>
-        <h1 class="page-title">Dashboard</h1>
-        <p class="page-subtitle" id="greeting">Selamat datang!</p>
-      </div>
+      <h1>📊 Dashboard</h1>
+      <p>Selamat datang, <strong id="username-display">—</strong> <span id="admin-badge" class="badge badge-info" style="display:none;">Admin</span></p>
     </div>
 
-    <div class="stats-grid" id="statsGrid">
+    <!-- Stats Cards Grid -->
+    <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-icon purple">📱</div>
-        <div>
-          <div class="stat-value" id="totalDevices">-</div>
-          <div class="stat-label">Jumlah Peranti</div>
+        <div class="stat-icon">📱</div>
+        <div class="stat-info">
+          <div class="stat-number" id="stat-devices">0</div>
+          <div class="stat-label">Total Peranti</div>
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon green">🟢</div>
-        <div>
-          <div class="stat-value" id="activeDevices">-</div>
+        <div class="stat-icon">🟢</div>
+        <div class="stat-info">
+          <div class="stat-number" id="stat-connected">0</div>
           <div class="stat-label">Peranti Aktif</div>
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon blue">💬</div>
-        <div>
-          <div class="stat-value" id="totalMessages">-</div>
+        <div class="stat-icon">💬</div>
+        <div class="stat-info">
+          <div class="stat-number" id="stat-messages">0</div>
           <div class="stat-label">Jumlah Mesej</div>
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon yellow">🤖</div>
-        <div>
-          <div class="stat-value" id="activeAutoReplies">-</div>
-          <div class="stat-label">Auto Balas Aktif</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon red">📢</div>
-        <div>
-          <div class="stat-value" id="runningBlasts">-</div>
-          <div class="stat-label">Broadcast Berjalan</div>
+        <div class="stat-icon">🤖</div>
+        <div class="stat-info">
+          <div class="stat-number" id="stat-autoreplies">0</div>
+          <div class="stat-label">Auto-Reply Aktif</div>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">📱 Peranti Anda</h3>
-        <a href="/device.html" class="btn btn-primary btn-sm">Urus Peranti</a>
-      </div>
-      <div id="deviceList">
-        <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
+    <!-- Quick Actions -->
+    <div class="section-card">
+      <h2>⚡ Tindakan Pantas</h2>
+      <div class="quick-actions">
+        <a href="/device.html" class="btn btn-primary">
+          <span>📱</span> Tambah Peranti
+        </a>
+        <a href="/chat.html" class="btn btn-outline">
+          <span>💬</span> Hantar Mesej
+        </a>
+        <a href="/blast.html" class="btn btn-outline">
+          <span>🚀</span> Blast Baru
+        </a>
+        <a href="/warmer.html" class="btn btn-outline">
+          <span>🔥</span> Warmer
+        </a>
+        <a href="/checker.html" class="btn btn-outline">
+          <span>🔍</span> Checker
+        </a>
       </div>
     </div>
-  </div>
 
+    <!-- Recent Activity Placeholder -->
+    <div class="section-card">
+      <h2>📋 Ringkasan</h2>
+      <p class="text-secondary">Gunakan menu di sebelah kiri untuk navigasi ke setiap modul.</p>
+    </div>
+  </main>
+
+  <div id="toast-container"></div>
   <script src="/js/app.js"></script>
   <script>
-    (async () => {
-      const user = await initPage('dashboard');
-      if (!user) return;
+    loadSidebar();
+    initSSE();
 
-      const hour = new Date().getHours();
-      const greeting = hour < 12 ? 'Selamat pagi' : hour < 18 ? 'Selamat petang' : 'Selamat malam';
-      document.getElementById('greeting').textContent = `${greeting}, ${user.username}! 👋`;
-
-      // Load stats
+    async function loadDashboard() {
       try {
-        const res = await api('/api/stats');
-        const s = res.data;
-        document.getElementById('totalDevices').textContent = s.totalDevices || 0;
-        document.getElementById('activeDevices').textContent = s.activeDevices || 0;
-        document.getElementById('totalMessages').textContent = s.totalMessages || 0;
-        document.getElementById('activeAutoReplies').textContent = s.activeAutoReplies || 0;
-        document.getElementById('runningBlasts').textContent = s.runningBlasts || 0;
-      } catch (err) {
-        showToast('Gagal memuatkan statistik', 'error');
-      }
-
-      // Load devices
-      try {
-        const res = await api('/api/devices');
-        const devices = res.data || [];
-        if (devices.length === 0) {
-          document.getElementById('deviceList').innerHTML = `
-            <div class="empty-state">
-              <div class="empty-state-icon">📱</div>
-              <div class="empty-state-title">Tiada peranti</div>
-              <p class="text-muted">Tambah peranti pertama anda untuk mula.</p>
-              <a href="/device.html" class="btn btn-primary mt-4">+ Tambah Peranti</a>
-            </div>`;
-        } else {
-          document.getElementById('deviceList').innerHTML = `
-            <div class="device-grid">
-              ${devices.map(d => `
-                <div class="device-card ${d.status}" data-device-id="${d.id}">
-                  <div class="device-header">
-                    <div>
-                      <div class="device-name">${escapeHtml(d.name)}</div>
-                      <div class="device-phone">${d.phone ? formatPhone(d.phone) : 'QR Sahaja'}</div>
-                    </div>
-                    <span class="badge badge-${d.status === 'connected' ? 'success' : d.status === 'connecting' ? 'warning' : 'danger'}">${d.status}</span>
-                  </div>
-                </div>
-              `).join('')}
-            </div>`;
-        }
-      } catch (err) {
-        document.getElementById('deviceList').innerHTML = '<p class="text-center text-muted">Gagal memuatkan peranti</p>';
-      }
-
-      // SSE — kemas kini di tempat, bukan muat semula penuh
-      onSSE('device-status', (data) => {
-        // Kemas kini statistik secara senyap
-        api('/api/stats').then(res => {
-          const s = res.data;
-          document.getElementById('totalDevices').textContent = s.totalDevices || 0;
-          document.getElementById('activeDevices').textContent = s.activeDevices || 0;
-          document.getElementById('totalMessages').textContent = s.totalMessages || 0;
-          document.getElementById('activeAutoReplies').textContent = s.activeAutoReplies || 0;
-          document.getElementById('runningBlasts').textContent = s.runningBlasts || 0;
-        }).catch(() => {});
-
-        // Kemas kini kad peranti khusus di dashboard
-        const card = document.querySelector(`#deviceList .device-card[data-device-id="${data.deviceId}"]`);
-        if (card) {
-          card.className = `device-card ${data.status}`;
-          const badge = card.querySelector('.badge');
-          if (badge) {
-            badge.className = `badge badge-${data.status === 'connected' ? 'success' : data.status === 'connecting' ? 'warning' : 'danger'}`;
-            badge.textContent = data.status;
+        const res = await api('/stats');
+        if (res.success) {
+          const d = res.data;
+          document.getElementById('username-display').textContent = d.username || '—';
+          document.getElementById('stat-devices').textContent = d.totalDevices || 0;
+          document.getElementById('stat-connected').textContent = d.connectedDevices || 0;
+          document.getElementById('stat-messages').textContent = d.totalMessages || 0;
+          document.getElementById('stat-autoreplies').textContent = d.activeAutoReplies || 0;
+          // Show admin badge if admin
+          if (d.role === 'admin') {
+            document.getElementById('admin-badge').style.display = 'inline';
           }
         }
+      } catch(err) {
+        showToast('Gagal muat dashboard', 'error');
+      }
+    }
 
-        showToast(`Peranti #${data.deviceId}: ${data.status}`, data.status === 'connected' ? 'success' : 'warning');
-      });
-    })();
+    loadDashboard();
   </script>
 </body>
 </html>

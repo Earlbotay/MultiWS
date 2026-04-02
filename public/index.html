@@ -3,141 +3,153 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Log Masuk</title>
+  <title>MultiChat — Log Masuk</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
-<body>
-  <div class="login-page">
+<body class="login-page">
+  <div class="login-container">
     <div class="login-card">
-      <!-- Long press logo 5s → admin login -->
-      <div class="login-logo" id="loginLogo">💬</div>
-      <h1 class="login-title">Multichat</h1>
-      <p class="login-subtitle">Platform automasi WhatsApp anda</p>
-
-      <form id="loginForm" autocomplete="on">
+      <div class="login-logo" id="loginLogo">
+        <h1>💬 MultiChat</h1>
+        <p>Sistem Pengurusan WhatsApp</p>
+      </div>
+      <form id="loginForm">
         <div class="form-group">
-          <label class="form-label">Nama Pengguna</label>
-          <input type="text" class="form-input" id="username" placeholder="Masukkan nama pengguna" required autofocus autocomplete="username">
+          <label for="username">Username</label>
+          <div class="input-icon-wrap">
+            <span class="input-icon">👤</span>
+            <input type="text" id="username" class="form-control" placeholder="Masukkan username" required autofocus>
+          </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Kata Laluan</label>
-          <input type="password" class="form-input" id="password" placeholder="Masukkan kata laluan" required autocomplete="current-password">
+          <label for="password">Kata Laluan</label>
+          <div class="input-icon-wrap">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="password" class="form-control" placeholder="Masukkan kata laluan" required>
+          </div>
         </div>
-        <button type="submit" class="login-btn" id="loginBtn">Log Masuk</button>
+        <button type="submit" class="btn btn-primary btn-block" id="loginBtn">
+          Log Masuk
+        </button>
       </form>
-
-      <div class="login-footer">🔒 Sambungan selamat</div>
     </div>
   </div>
 
-  <!-- Admin Login Modal (triggered by 5s long press on logo) -->
-  <div class="admin-login-overlay" id="adminOverlay">
-    <div class="admin-login-card">
-      <div class="admin-login-icon">🛡️</div>
-      <h2 class="admin-login-title">Log Masuk Pentadbir</h2>
-      <form id="adminLoginForm">
-        <div class="form-group">
-          <label class="form-label">Nama Pengguna Admin</label>
-          <input type="text" class="form-input" id="adminUsername" placeholder="Admin" autocomplete="username">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Kata Laluan Admin</label>
-          <input type="password" class="form-input" id="adminPassword" placeholder="Kata laluan" autocomplete="current-password">
-        </div>
-        <button type="submit" class="login-btn" style="background: linear-gradient(135deg, #4f46e5, #7c3aed);">🛡️ Masuk sebagai Admin</button>
-      </form>
-      <p class="login-footer" style="cursor:pointer;" onclick="document.getElementById('adminOverlay').classList.remove('active')">Batal</p>
+  <!-- Admin Login Modal (hidden by default, triggered by long-press on logo) -->
+  <div class="modal-overlay" id="adminModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>🔐 Admin Log Masuk</h3>
+        <button class="modal-close" onclick="document.getElementById('adminModal').style.display='none'">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="adminLoginForm">
+          <div class="form-group">
+            <label for="adminUsername">Admin Username</label>
+            <input type="text" id="adminUsername" class="form-control" placeholder="Admin username" required>
+          </div>
+          <div class="form-group">
+            <label for="adminPassword">Admin Kata Laluan</label>
+            <input type="password" id="adminPassword" class="form-control" placeholder="Admin kata laluan" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block" id="adminLoginBtn">Log Masuk Admin</button>
+        </form>
+      </div>
     </div>
   </div>
 
+  <div id="toast-container"></div>
   <script src="/js/app.js"></script>
   <script>
     // Check if already logged in
     (async () => {
       try {
-        const res = await api('/api/auth/me');
-        if (res.data) window.location.href = '/dashboard.html';
-      } catch (e) {}
+        const res = await api('/auth/me');
+        if (res.success) window.location.href = '/dashboard.html';
+      } catch(e) {
+        // Not logged in — stay on login page
+      }
     })();
 
-    // === Long press logo 5 seconds → show admin login ===
-    let pressTimer = null;
-    let pressStart = 0;
-    const logo = document.getElementById('loginLogo');
-
-    function startPress(e) {
-      e.preventDefault();
-      pressStart = Date.now();
-      logo.classList.add('pressed');
-      pressTimer = setTimeout(() => {
-        logo.classList.remove('pressed');
-        document.getElementById('adminOverlay').classList.add('active');
-        document.getElementById('adminUsername').focus();
-      }, 5000);
-    }
-
-    function endPress() {
-      clearTimeout(pressTimer);
-      logo.classList.remove('pressed');
-    }
-
-    logo.addEventListener('mousedown', startPress);
-    logo.addEventListener('mouseup', endPress);
-    logo.addEventListener('mouseleave', endPress);
-    logo.addEventListener('touchstart', startPress, { passive: false });
-    logo.addEventListener('touchend', endPress);
-    logo.addEventListener('touchcancel', endPress);
-
-    // User login
+    // Normal user login
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('loginBtn');
       btn.disabled = true;
-      btn.textContent = 'Sedang log masuk...';
-
+      btn.textContent = 'Memproses...';
       try {
-        const res = await api('/api/auth/login', {
+        const res = await api('/auth/login', {
           method: 'POST',
           body: JSON.stringify({
             username: document.getElementById('username').value,
             password: document.getElementById('password').value
           })
         });
-        showToast('Log masuk berjaya!', 'success');
-        setTimeout(() => window.location.href = '/dashboard.html', 500);
-      } catch (err) {
-        showToast(err.message, 'error');
+        if (res.success) {
+          showToast('Berjaya log masuk!', 'success');
+          setTimeout(() => window.location.href = '/dashboard.html', 500);
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal log masuk', 'error');
+      } finally {
         btn.disabled = false;
         btn.textContent = 'Log Masuk';
       }
     });
 
-    // Admin login
+    // Admin login (modal form)
     document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = e.target.querySelector('button');
+      const btn = document.getElementById('adminLoginBtn');
       btn.disabled = true;
-
+      btn.textContent = 'Memproses...';
       try {
-        const res = await api('/api/auth/admin-login', {
+        const res = await api('/auth/admin-login', {
           method: 'POST',
           body: JSON.stringify({
             username: document.getElementById('adminUsername').value,
             password: document.getElementById('adminPassword').value
           })
         });
-        showToast('Log masuk admin berjaya!', 'success');
-        setTimeout(() => window.location.href = '/admin.html', 500);
-      } catch (err) {
-        showToast(err.message, 'error');
+        if (res.success) {
+          showToast('Berjaya log masuk sebagai admin!', 'success');
+          setTimeout(() => window.location.href = '/dashboard.html', 500);
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal log masuk admin', 'error');
+      } finally {
         btn.disabled = false;
+        btn.textContent = 'Log Masuk Admin';
       }
     });
 
-    // Close admin overlay on outside click
-    document.getElementById('adminOverlay').addEventListener('click', function(e) {
-      if (e.target === this) this.classList.remove('active');
-    });
+    // Long-press logo (5 seconds) to open admin login modal
+    (function() {
+      const logo = document.getElementById('loginLogo');
+      let pressTimer = null;
+      const HOLD_DURATION = 5000;
+
+      function startPress(e) {
+        e.preventDefault();
+        pressTimer = setTimeout(() => {
+          document.getElementById('adminModal').style.display = 'flex';
+        }, HOLD_DURATION);
+      }
+
+      function cancelPress() {
+        if (pressTimer) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
+      }
+
+      logo.addEventListener('mousedown', startPress);
+      logo.addEventListener('mouseup', cancelPress);
+      logo.addEventListener('mouseleave', cancelPress);
+      logo.addEventListener('touchstart', startPress, { passive: false });
+      logo.addEventListener('touchend', cancelPress);
+      logo.addEventListener('touchcancel', cancelPress);
+    })();
   </script>
 </body>
 </html>

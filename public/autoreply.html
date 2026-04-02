@@ -3,154 +3,298 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multichat - Auto Balas</title>
+  <title>MultiChat — Auto-Reply</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div class="sidebar" id="sidebar"></div>
-  <div class="main-content">
+  <div id="sidebar"></div>
+
+  <main class="main-content">
     <div class="page-header">
-      <div>
-        <h1 class="page-title">🤖 Auto Balas</h1>
-        <p class="page-subtitle">Tetapkan balasan automatik untuk mesej masuk</p>
+      <h1>🤖 Auto-Reply</h1>
+      <button class="btn btn-primary" onclick="openRuleModal()">
+        <span>➕</span> Tambah Rule
+      </button>
+    </div>
+
+    <!-- Rules Table -->
+    <div class="section-card">
+      <h2>📋 Senarai Rules</h2>
+      <div class="table-responsive">
+        <table class="table" id="rules-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Peranti</th>
+              <th>Trigger</th>
+              <th>Jenis Padanan</th>
+              <th>Respons</th>
+              <th>Status</th>
+              <th>Tindakan</th>
+            </tr>
+          </thead>
+          <tbody id="rules-tbody">
+            <tr>
+              <td colspan="7" class="text-center text-secondary">Memuatkan...</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <button class="btn btn-primary" onclick="showModal('addRuleModal')">+ Tambah Peraturan</button>
     </div>
+  </main>
 
-    <div id="rulesList">
-      <div class="loading-overlay"><div class="spinner"></div><span>Memuatkan...</span></div>
-    </div>
-  </div>
-
-  <!-- Add Rule Modal -->
-  <div class="modal-overlay" id="addRuleModal">
-    <div class="modal" style="max-width:560px;">
+  <!-- Create/Edit Rule Modal -->
+  <div class="modal-overlay" id="ruleModal" style="display:none;">
+    <div class="modal">
       <div class="modal-header">
-        <h3 class="modal-title">🤖 Tambah Peraturan Auto Balas</h3>
-        <button class="modal-close" onclick="hideModal('addRuleModal')">✕</button>
+        <h3 id="ruleModalTitle">🤖 Tambah Auto-Reply Rule</h3>
+        <button class="modal-close" onclick="closeRuleModal()">&times;</button>
       </div>
-
-      <div class="form-group">
-        <label class="form-label">Peranti</label>
-        <select class="form-select" id="ruleDevice"></select>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Kata Kunci (pencetus)</label>
-        <input type="text" class="form-input" id="ruleTrigger" placeholder="cth: harga / salam / info">
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Balasan</label>
-        <textarea class="form-textarea" id="ruleReply" placeholder="Mesej balasan automatik..." rows="4"></textarea>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Jenis Padanan</label>
-        <select class="form-select" id="ruleMatchType">
-          <option value="contains">Mengandungi</option>
-          <option value="exact">Tepat</option>
-          <option value="startsWith">Bermula dengan</option>
-        </select>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn btn-outline" onclick="hideModal('addRuleModal')">Batal</button>
-        <button class="btn btn-primary" onclick="addRule()">Tambah Peraturan</button>
+      <div class="modal-body">
+        <form id="ruleForm" onsubmit="handleSaveRule(event)">
+          <input type="hidden" id="ruleEditId" value="">
+          <div class="form-group">
+            <label for="ruleDevice">Peranti</label>
+            <select id="ruleDevice" class="form-control">
+              <option value="">Semua Peranti</option>
+            </select>
+            <small class="text-secondary">Biarkan kosong untuk semua peranti</small>
+          </div>
+          <div class="form-group">
+            <label for="ruleTrigger">Trigger Word</label>
+            <input type="text" id="ruleTrigger" class="form-control" placeholder="cth: salam, harga, info" required>
+          </div>
+          <div class="form-group">
+            <label for="ruleMatchType">Jenis Padanan</label>
+            <select id="ruleMatchType" class="form-control" required>
+              <option value="contains">Contains (mengandungi)</option>
+              <option value="exact">Exact (tepat sama)</option>
+              <option value="startsWith">Starts With (bermula dengan)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="ruleResponse">Respons</label>
+            <textarea id="ruleResponse" class="form-control" rows="4" placeholder="Mesej balasan automatik..." required></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-outline" onclick="closeRuleModal()">Batal</button>
+            <button type="submit" class="btn btn-primary" id="saveRuleBtn">Simpan Rule</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
 
+  <div id="toast-container"></div>
   <script src="/js/app.js"></script>
   <script>
+    loadSidebar();
+    initSSE();
+
+    let allRules = [];
+
+    // --- Load Rules ---
     async function loadRules() {
       try {
-        const res = await api('/api/autoreply');
-        const rules = res.data || [];
-
-        if (rules.length === 0) {
-          document.getElementById('rulesList').innerHTML = `
-            <div class="empty-state">
-              <div class="empty-state-icon">🤖</div>
-              <div class="empty-state-title">Tiada peraturan auto balas</div>
-              <p class="text-muted">Tambah peraturan untuk mula membalas mesej secara automatik.</p>
-            </div>`;
-          return;
+        const res = await api('/auto-reply');
+        if (res.success) {
+          allRules = res.data || [];
+          renderRules(allRules);
         }
-
-        document.getElementById('rulesList').innerHTML = `
-          <div class="table-container">
-            <table>
-              <thead><tr><th>Kata Kunci</th><th>Balasan</th><th>Padanan</th><th>Status</th><th>Tindakan</th></tr></thead>
-              <tbody>${rules.map(r => `
-                <tr>
-                  <td><strong>${escapeHtml(r.trigger_text)}</strong></td>
-                  <td class="text-muted" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.reply_text)}</td>
-                  <td><span class="badge badge-info">${r.match_type || 'contains'}</span></td>
-                  <td>
-                    <span class="badge badge-${r.is_active ? 'success' : 'muted'}">${r.is_active ? 'Aktif' : 'Tidak aktif'}</span>
-                  </td>
-                  <td>
-                    <div class="flex gap-2">
-                      <button class="btn btn-outline btn-sm" onclick="toggleRule(${r.id}, ${r.is_active ? 0 : 1})">${r.is_active ? '⏸' : '▶'}</button>
-                      <button class="btn btn-danger btn-sm" onclick="deleteRule(${r.id})">🗑</button>
-                    </div>
-                  </td>
-                </tr>
-              `).join('')}</tbody>
-            </table>
-          </div>`;
-      } catch (err) {
-        showToast('Gagal memuatkan: ' + err.message, 'error');
+      } catch(err) {
+        showToast('Gagal muat senarai rules', 'error');
       }
     }
 
-    async function loadDeviceOptions() {
-      try {
-        const res = await api('/api/devices');
-        document.getElementById('ruleDevice').innerHTML = (res.data || []).map(d =>
-          `<option value="${d.id}">${escapeHtml(d.name)} ${d.status === 'connected' ? '🟢' : '🔴'}</option>`
-        ).join('');
-      } catch (err) {}
+    function renderRules(rules) {
+      const tbody = document.getElementById('rules-tbody');
+      if (!rules.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary">Tiada auto-reply rule. Klik "Tambah Rule" untuk mula.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rules.map(r => createRuleRow(r)).join('');
     }
 
-    async function addRule() {
+    function createRuleRow(r) {
+      const deviceName = r.device_name || r.deviceName || (r.device_id ? 'Peranti #' + r.device_id : 'Semua');
+      const matchLabels = { exact: 'Exact', contains: 'Contains', startsWith: 'Starts With' };
+      const matchLabel = matchLabels[r.match_type || r.matchType] || (r.match_type || r.matchType || 'contains');
+      const isActive = r.is_active === 1 || r.is_active === true || r.isActive === true;
+      const responsePreview = (r.response || '').length > 50 ? escapeHtml(r.response.substring(0, 50)) + '...' : escapeHtml(r.response || '');
+
+      return `
+        <tr data-rule-id="${r.id}">
+          <td>#${r.id}</td>
+          <td>${escapeHtml(deviceName)}</td>
+          <td><code>${escapeHtml(r.trigger_word || r.triggerWord || '')}</code></td>
+          <td><span class="status-badge info">${escapeHtml(matchLabel)}</span></td>
+          <td title="${escapeHtml(r.response || '')}">${responsePreview}</td>
+          <td>
+            <label class="toggle-switch">
+              <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleRule(${r.id})">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="text-secondary text-sm">${isActive ? 'Aktif' : 'Tidak'}</span>
+          </td>
+          <td class="table-actions">
+            <button class="btn btn-sm btn-outline" onclick="editRule(${r.id})">✏️ Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteRule(${r.id})">🗑 Padam</button>
+          </td>
+        </tr>
+      `;
+    }
+
+    // --- Load Devices ---
+    async function loadDevices() {
       try {
-        await api('/api/autoreply', {
-          method: 'POST',
-          body: JSON.stringify({
-            deviceId: parseInt(document.getElementById('ruleDevice').value),
-            triggerText: document.getElementById('ruleTrigger').value,
-            replyText: document.getElementById('ruleReply').value,
-            matchType: document.getElementById('ruleMatchType').value,
-          })
-        });
-        hideModal('addRuleModal');
-        showToast('Peraturan ditambah!', 'success');
-        loadRules();
-      } catch (err) {
-        showToast(err.message, 'error');
+        const res = await api('/devices');
+        if (res.success) {
+          const devices = res.data || [];
+          const select = document.getElementById('ruleDevice');
+          select.innerHTML = '<option value="">Semua Peranti</option>' +
+            devices.map(d => `<option value="${d.id}">${escapeHtml(d.name)}${d.phone ? ' (' + escapeHtml(d.phone) + ')' : ''}</option>`).join('');
+        }
+      } catch(err) {
+        // Silently fail
       }
     }
 
-    async function toggleRule(id, active) {
-      try {
-        await api(`/api/autoreply/${id}`, { method: 'PATCH', body: JSON.stringify({ is_active: active }) });
-        showToast(active ? 'Peraturan diaktifkan' : 'Peraturan dinyahaktifkan', 'success');
-        loadRules();
-      } catch (err) { showToast(err.message, 'error'); }
+    // --- Open / Close Modal ---
+    function openRuleModal(editData) {
+      loadDevices();
+      document.getElementById('ruleEditId').value = '';
+      document.getElementById('ruleModalTitle').textContent = '🤖 Tambah Auto-Reply Rule';
+      document.getElementById('ruleTrigger').value = '';
+      document.getElementById('ruleMatchType').value = 'contains';
+      document.getElementById('ruleResponse').value = '';
+      document.getElementById('ruleDevice').value = '';
+      document.getElementById('saveRuleBtn').textContent = 'Simpan Rule';
+
+      if (editData) {
+        document.getElementById('ruleEditId').value = editData.id;
+        document.getElementById('ruleModalTitle').textContent = '✏️ Edit Auto-Reply Rule';
+        document.getElementById('ruleTrigger').value = editData.trigger_word || editData.triggerWord || '';
+        document.getElementById('ruleMatchType').value = editData.match_type || editData.matchType || 'contains';
+        document.getElementById('ruleResponse').value = editData.response || '';
+        document.getElementById('saveRuleBtn').textContent = 'Kemas Kini';
+        // Set device after device list loaded
+        setTimeout(() => {
+          document.getElementById('ruleDevice').value = editData.device_id || '';
+        }, 300);
+      }
+
+      document.getElementById('ruleModal').style.display = 'flex';
     }
 
+    function closeRuleModal() {
+      document.getElementById('ruleModal').style.display = 'none';
+    }
+
+    // --- Save Rule (Create or Edit) ---
+    async function handleSaveRule(e) {
+      e.preventDefault();
+      const editId = document.getElementById('ruleEditId').value;
+      const deviceId = document.getElementById('ruleDevice').value || null;
+      const triggerWord = document.getElementById('ruleTrigger').value.trim();
+      const matchType = document.getElementById('ruleMatchType').value;
+      const response = document.getElementById('ruleResponse').value.trim();
+
+      if (!triggerWord) { showToast('Sila masukkan trigger word', 'error'); return; }
+      if (!response) { showToast('Sila masukkan respons', 'error'); return; }
+
+      const btn = document.getElementById('saveRuleBtn');
+      btn.disabled = true;
+      btn.textContent = 'Menyimpan...';
+
+      try {
+        const body = JSON.stringify({ deviceId, triggerWord, matchType, response });
+        let res;
+        if (editId) {
+          res = await api(`/auto-reply/${editId}`, { method: 'PUT', body });
+        } else {
+          res = await api('/auto-reply', { method: 'POST', body });
+        }
+        if (res.success) {
+          showToast(editId ? 'Rule berjaya dikemas kini!' : 'Rule berjaya dicipta!', 'success');
+          closeRuleModal();
+          loadRules();
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal menyimpan rule', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = editId ? 'Kemas Kini' : 'Simpan Rule';
+      }
+    }
+
+    // --- Edit Rule ---
+    function editRule(id) {
+      const rule = allRules.find(r => r.id === id);
+      if (rule) {
+        openRuleModal(rule);
+      } else {
+        showToast('Rule tidak dijumpai', 'error');
+      }
+    }
+
+    // --- Toggle Rule ---
+    async function toggleRule(id) {
+      try {
+        const res = await api(`/auto-reply/${id}/toggle`, { method: 'PUT' });
+        if (res.success) {
+          const rule = allRules.find(r => r.id === id);
+          if (rule) {
+            const newActive = !(rule.is_active === 1 || rule.is_active === true);
+            rule.is_active = newActive ? 1 : 0;
+          }
+          const row = document.querySelector(`[data-rule-id="${id}"]`);
+          if (row) {
+            const statusText = row.querySelector('.text-sm');
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            if (res.data && res.data.is_active !== undefined) {
+              const isActive = res.data.is_active === 1 || res.data.is_active === true;
+              if (statusText) statusText.textContent = isActive ? 'Aktif' : 'Tidak';
+              if (checkbox) checkbox.checked = isActive;
+            } else if (statusText) {
+              const isNowActive = checkbox ? checkbox.checked : false;
+              statusText.textContent = isNowActive ? 'Aktif' : 'Tidak';
+            }
+          }
+          showToast('Status rule dikemas kini', 'success');
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal menukar status rule', 'error');
+        // Revert checkbox
+        const row = document.querySelector(`[data-rule-id="${id}"]`);
+        if (row) {
+          const checkbox = row.querySelector('input[type="checkbox"]');
+          if (checkbox) checkbox.checked = !checkbox.checked;
+        }
+      }
+    }
+
+    // --- Delete Rule ---
     async function deleteRule(id) {
-      if (!await confirmAction('Padam peraturan auto balas ini?')) return;
-      try { await api(`/api/autoreply/${id}`, { method: 'DELETE' }); showToast('Peraturan dipadam', 'success'); loadRules(); }
-      catch (err) { showToast(err.message, 'error'); }
+      if (!confirm('Adakah anda pasti mahu memadam rule ini?')) return;
+      try {
+        const res = await api(`/auto-reply/${id}`, { method: 'DELETE' });
+        if (res.success) {
+          showToast('Rule berjaya dipadam', 'success');
+          const row = document.querySelector(`[data-rule-id="${id}"]`);
+          if (row) row.remove();
+          allRules = allRules.filter(r => r.id !== id);
+          const tbody = document.getElementById('rules-tbody');
+          if (!tbody.children.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary">Tiada auto-reply rule. Klik "Tambah Rule" untuk mula.</td></tr>';
+          }
+        }
+      } catch(err) {
+        showToast(err.message || 'Gagal memadam rule', 'error');
+      }
     }
 
-    (async () => {
-      if (!await initPage('autoreply')) return;
-      await Promise.all([loadRules(), loadDeviceOptions()]);
-    })();
+    // Initial load
+    loadRules();
   </script>
 </body>
 </html>

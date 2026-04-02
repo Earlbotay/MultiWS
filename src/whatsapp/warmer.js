@@ -1,150 +1,159 @@
 const { db } = require('../database');
-const waManager = require('./manager');
-const { triggerSync } = require('../sync');
+const { emit } = require('../events');
+const { syncData } = require('../sync');
+const WAManager = require('./manager');
 
-class WarmerService {
-  constructor() {
-    this.activeWarmers = new Map();
-    console.log('[Warmer] Servis warmer dimulakan');
-  }
+// Map of active warmers: warmerId -> intervalId
+const activeWarmers = new Map();
 
-  createSession(userId, deviceIds, messages, intervalMin, intervalMax) {
-    console.log(`[Warmer] Mencipta sesi warmer dengan ${deviceIds.length} peranti`);
+/**
+ * Send a single warmer message
+ * @param {object} warmer - warmer job row from DB
+ * @param {object} session - WAManager session
+ * @returns {boolean} success
+ */
+async function sendWarmerMessage(warmer, session) {
+  const phone = warmer.target_phone.replace(/[^0-9]/g, '');
+  const jid = `${phone}@s.whatsapp.net`;
 
-    const messagesJson = JSON.stringify(messages);
+  try {
+    await session.socket.sendMessage(jid, { text: warmer.message });
 
-    const result = db.prepare(`
-      INSERT INTO warmer_sessions (user_id, messages, interval_min, interval_max, status)
-      VALUES (?, ?, ?, ?, 'stopped')
-    `).run(userId, messagesJson, intervalMin, intervalMax);
+    // Update warmer stats in DB
+    db.prepare(
+      'UPDATE warmer_jobs SET total_sent = total_sent + 1, last_sent = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(warmer.id);
 
-    const warmerId = result.lastInsertRowid;
+    // Get updated warmer data
+    const updated = db.prepare('SELECT total_sent, last_sent FROM warmer_jobs WHERE id = ?').get(warmer.id);
 
-    const insertDevice = db.prepare(
-      'INSERT INTO warmer_devices (warmer_id, device_id) VALUES (?, ?)'
-    );
+    // Save to messages table
+    db.prepare(
+      'INSERT INTO messages (device_id, remote_jid, from_me, message, timestamp, status) VALUES (?, ?, 1, ?, ?, ?)'
+    ).run(warmer.device_id, jid, warmer.message, Math.floor(Date.now() / 1000), 'sent');
 
-    const insertMany = db.transaction((ids) => {
-      for (const deviceId of ids) {
-        insertDevice.run(warmerId, deviceId);
-      }
+    emit(warmer.user_id, 'warmer-update', {
+      warmerId: warmer.id,
+      totalSent: updated.total_sent,
+      lastSent: updated.last_sent
     });
 
-    insertMany(deviceIds);
-
-    const session = db.prepare('SELECT * FROM warmer_sessions WHERE id = ?').get(warmerId);
-    triggerSync('warmer: sesi baru dicipta');
-    console.log(`[Warmer] Sesi warmer #${warmerId} berjaya dicipta`);
-    return session;
-  }
-
-  async startWarmer(warmerId) {
-    const session = db.prepare('SELECT * FROM warmer_sessions WHERE id = ?').get(warmerId);
-    if (!session) {
-      throw new Error('Sesi warmer tidak dijumpai');
-    }
-
-    const devices = db.prepare('SELECT * FROM warmer_devices WHERE warmer_id = ?').all(warmerId);
-    const messages = JSON.parse(session.messages);
-
-    // Validasi SEBELUM update status
-    if (devices.length < 2) {
-      throw new Error('Sekurang-kurangnya 2 peranti diperlukan untuk warmer');
-    }
-
-    if (!messages || messages.length === 0) {
-      throw new Error('Senarai mesej tidak boleh kosong');
-    }
-
-    // Sekarang selamat untuk update status
-    console.log(`[Warmer] Memulakan warmer #${warmerId}`);
-    db.prepare('UPDATE warmer_sessions SET status = ? WHERE id = ?').run('running', warmerId);
-    triggerSync('warmer: sesi dimulakan');
-
-    const warmerState = { timeout: null, running: true };
-    this.activeWarmers.set(warmerId, warmerState);
-
-    const runIteration = async () => {
-      if (!warmerState.running) return;
-
-      try {
-        // Pilih 2 peranti secara rawak
-        const shuffled = [...devices].sort(() => Math.random() - 0.5);
-        const deviceA = shuffled[0];
-        const deviceB = shuffled[1];
-
-        // Pilih mesej secara rawak
-        const message = messages[Math.floor(Math.random() * messages.length)];
-
-        // Dapatkan maklumat peranti B untuk nombor telefon
-        const deviceBInfo = db.prepare('SELECT * FROM devices WHERE id = ?').get(deviceB.device_id);
-
-        if (deviceBInfo && deviceBInfo.phone) {
-          const jid = waManager.formatJid(deviceBInfo.phone);
-          const statusA = waManager.getStatus(deviceA.device_id);
-          const statusB = waManager.getStatus(deviceB.device_id);
-
-          if (statusA === 'connected' && statusB === 'connected') {
-            await waManager.sendMessage(deviceA.device_id, jid, { text: message });
-            console.log(`[Warmer] Mesej dihantar dari peranti ${deviceA.device_id} ke peranti ${deviceB.device_id}`);
-          } else {
-            console.log(`[Warmer] Peranti tidak disambungkan. A: ${statusA}, B: ${statusB}`);
-          }
-        } else {
-          console.log(`[Warmer] Maklumat peranti B tidak dijumpai atau tiada nombor telefon`);
-        }
-      } catch (err) {
-        console.log(`[Warmer] Ralat semasa iterasi warmer #${warmerId}: ${err.message}`);
-      }
-
-      // Jadualkan iterasi seterusnya
-      if (warmerState.running) {
-        const intervalMin = session.interval_min || 30;
-        const intervalMax = session.interval_max || 60;
-        const delay = Math.floor(Math.random() * (intervalMax - intervalMin + 1)) + intervalMin;
-        console.log(`[Warmer] Iterasi seterusnya dalam ${delay} saat`);
-        warmerState.timeout = setTimeout(runIteration, delay * 1000);
-      }
-    };
-
-    // Mulakan iterasi pertama
-    runIteration();
-  }
-
-  stopWarmer(warmerId) {
-    console.log(`[Warmer] Menghentikan warmer #${warmerId}`);
-    const warmerState = this.activeWarmers.get(warmerId);
-    if (warmerState) {
-      warmerState.running = false;
-      if (warmerState.timeout) {
-        clearTimeout(warmerState.timeout);
-        warmerState.timeout = null;
-      }
-      this.activeWarmers.delete(warmerId);
-    }
-    db.prepare('UPDATE warmer_sessions SET status = ? WHERE id = ?').run('stopped', warmerId);
-    triggerSync('warmer: sesi dihentikan');
-  }
-
-  deleteWarmer(warmerId) {
-    console.log(`[Warmer] Memadam warmer #${warmerId}`);
-    this.stopWarmer(warmerId);
-    db.prepare('DELETE FROM warmer_devices WHERE warmer_id = ?').run(warmerId);
-    db.prepare('DELETE FROM warmer_sessions WHERE id = ?').run(warmerId);
-    triggerSync('warmer: sesi dipadam');
-  }
-
-  getSession(warmerId) {
-    const session = db.prepare('SELECT * FROM warmer_sessions WHERE id = ?').get(warmerId);
-    if (!session) return null;
-
-    const devices = db.prepare('SELECT * FROM warmer_devices WHERE warmer_id = ?').all(warmerId);
-    return { ...session, devices };
-  }
-
-  getSessions(userId) {
-    return db.prepare('SELECT * FROM warmer_sessions WHERE user_id = ? ORDER BY id DESC').all(userId);
+    console.log(`[Warmer] Sent message for warmer ${warmer.id} to ${phone} (total: ${updated.total_sent})`);
+    syncData();
+    return true;
+  } catch (err) {
+    console.error(`[Warmer] Failed to send for warmer ${warmer.id} to ${phone}:`, err.message);
+    return false;
   }
 }
 
-module.exports = new WarmerService();
+/**
+ * Calculate a random interval between min and max (minutes -> milliseconds)
+ * @param {number} intervalMin - minimum interval in minutes
+ * @param {number} intervalMax - maximum interval in minutes
+ * @returns {number} interval in milliseconds
+ */
+function randomInterval(intervalMin, intervalMax) {
+  const min = (intervalMin || 30) * 60 * 1000;
+  const max = (intervalMax || 60) * 60 * 1000;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/**
+ * Start a warmer job — sends messages at random intervals
+ * @param {number} warmerId
+ */
+async function startWarmer(warmerId) {
+  // Stop existing warmer if running
+  if (activeWarmers.has(warmerId)) {
+    clearInterval(activeWarmers.get(warmerId));
+    activeWarmers.delete(warmerId);
+  }
+
+  const warmer = db.prepare('SELECT * FROM warmer_jobs WHERE id = ?').get(warmerId);
+  if (!warmer) {
+    throw new Error(`Warmer job ${warmerId} not found`);
+  }
+
+  const manager = WAManager.getInstance();
+  const session = manager.getSession(warmer.device_id);
+
+  if (!session || !session.socket) {
+    db.prepare("UPDATE warmer_jobs SET status = 'stopped' WHERE id = ?").run(warmerId);
+    throw new Error(`Device ${warmer.device_id} is not connected`);
+  }
+
+  // Update status to active
+  db.prepare("UPDATE warmer_jobs SET status = 'active' WHERE id = ?").run(warmerId);
+
+  // Send first message immediately
+  await sendWarmerMessage(warmer, session);
+
+  // Set up recurring interval with random timing
+  const scheduleNext = () => {
+    const interval = randomInterval(warmer.interval_min, warmer.interval_max);
+    console.log(`[Warmer] Next message for warmer ${warmerId} in ${Math.round(interval / 60000)} minutes`);
+
+    const timeoutId = setTimeout(async () => {
+      // Verify warmer is still active
+      const current = db.prepare('SELECT status, device_id FROM warmer_jobs WHERE id = ?').get(warmerId);
+      if (!current || current.status !== 'active') {
+        activeWarmers.delete(warmerId);
+        return;
+      }
+
+      // Verify device is still connected
+      const currentSession = manager.getSession(current.device_id);
+      if (!currentSession || !currentSession.socket) {
+        console.error(`[Warmer] Device ${current.device_id} disconnected, stopping warmer ${warmerId}`);
+        db.prepare("UPDATE warmer_jobs SET status = 'stopped' WHERE id = ?").run(warmerId);
+        activeWarmers.delete(warmerId);
+        return;
+      }
+
+      await sendWarmerMessage(warmer, currentSession);
+
+      // Schedule next message if still in map
+      if (activeWarmers.has(warmerId)) {
+        scheduleNext();
+      }
+    }, interval);
+
+    activeWarmers.set(warmerId, timeoutId);
+  };
+
+  scheduleNext();
+  console.log(`[Warmer] Started warmer ${warmerId}`);
+}
+
+/**
+ * Stop a warmer job permanently
+ * @param {number} warmerId
+ */
+function stopWarmer(warmerId) {
+  const timerId = activeWarmers.get(warmerId);
+  if (timerId) {
+    clearTimeout(timerId);
+    activeWarmers.delete(warmerId);
+  }
+
+  db.prepare("UPDATE warmer_jobs SET status = 'stopped' WHERE id = ?").run(warmerId);
+  console.log(`[Warmer] Stopped warmer ${warmerId}`);
+}
+
+/**
+ * Pause a warmer job (can be resumed later)
+ * @param {number} warmerId
+ */
+function pauseWarmer(warmerId) {
+  const timerId = activeWarmers.get(warmerId);
+  if (timerId) {
+    clearTimeout(timerId);
+    activeWarmers.delete(warmerId);
+  }
+
+  db.prepare("UPDATE warmer_jobs SET status = 'paused' WHERE id = ?").run(warmerId);
+  console.log(`[Warmer] Paused warmer ${warmerId}`);
+}
+
+module.exports = { startWarmer, stopWarmer, pauseWarmer, activeWarmers };
